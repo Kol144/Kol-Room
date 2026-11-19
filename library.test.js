@@ -4,6 +4,8 @@ import { IDBFactory } from 'fake-indexeddb';
 import { analyzeSegments } from './analysis.js';
 import { applyAnalysis, cleanProject } from './project-data.js';
 import { artworkIdentity, coverCandidates, findArtwork } from './artwork.js';
+import {findOnlineTempo} from './online-tempo.js';
+import {announcement} from './song-speech.js';
 import { DB_NAME, attachAudio, attachCover, clearOrphans, deleteProject, getAudio, getCover,
   getOriginal, listProjects, openDB, removeAudio, restoreCover, saveProject, storageInfo, updateProject } from './storage.js';
 
@@ -136,6 +138,17 @@ test('una importación con destino eliminado no deja blobs ni vuelve a crear la 
 });
 
 const rate = 11025;
+test('los BPM se redondean y los títulos ingleses usan fonética inglesa con correcciones individuales', async () => {
+  assert.equal(cleanProject({repertoire:[{bpm:123.45}]}).repertoire[0].bpm,123);
+  assert.equal(applyAnalysis({bpmSource:'default'},{detectedBpm:123.7}).bpm,124);
+  const spoken=announcement({title:'kill ur vibe'},{voiceLang:'es-ES'});
+  assert.equal(spoken.text,'kill your vibe');
+  assert.equal(spoken.settings.voiceURI,'kolroom:piper-lessac-en');
+  assert.equal(announcement({title:'Otro',pronunciation:'Mi nombre',speechLanguage:'es-ES'},{}).text,'Mi nombre');
+  const result=await findOnlineTempo({title:'Tema',artist:'Banda',duration:180},async url=>({ok:true,json:async()=>
+    String(url).includes('musicbrainz.org') ? {recordings:[{id:'12345678-1234-1234-1234-123456789abc',title:'Tema',length:180000,'artist-credit':[{name:'Banda'}]}]} : {rhythm:{bpm:123.7}}}));
+  assert.equal(result.bpm,124);
+});
 test('el primer golpe real descarta silencio inicial y un transitorio aislado', () => {
   const first=2.173,bpm=120,period=60/bpm;
   const intro=Float32Array.from({length:rate*18},(_,i)=>{

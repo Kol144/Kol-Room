@@ -1,15 +1,16 @@
 export const spanishVoice = Object.freeze({voiceURI:'frumos:piper-davefx',name:'DaveFX · neuronal local',lang:'es-ES',localService:true});
+export const englishVoice = Object.freeze({voiceURI:'kolroom:piper-lessac-en',name:'Lessac · neuronal inglesa',lang:'en-US',localService:true});
 const clips=new Map();
 let context;
 export function usesNeural(settings) {
-  return settings.voiceURI===spanishVoice.voiceURI || (!settings.voiceURI && /^es\b/i.test(settings.voiceLang));
+  return [spanishVoice.voiceURI,englishVoice.voiceURI].includes(settings.voiceURI) || (!settings.voiceURI && /^(es|en)\b/i.test(settings.voiceLang));
 }
 export function primeNeural() {
   context ||= new (globalThis.AudioContext || globalThis.webkitAudioContext)();
   return context.resume();
 }
-function synthesize(text,speed,signal) {
-  const key=JSON.stringify([text,speed]);
+function synthesize(text,speed,model,signal) {
+  const key=JSON.stringify([text,speed,model]);
   if(clips.has(key))return Promise.resolve(clips.get(key));
   return new Promise((resolve,reject)=>{
     signal.throwIfAborted();
@@ -26,14 +27,15 @@ function synthesize(text,speed,signal) {
       if(clips.size>=12)clips.delete(clips.keys().next().value);
       clips.set(key,data);finish(resolve,data);
     };
-    worker.postMessage({text,speed});
+    worker.postMessage({text,speed,model});
   });
 }
 export async function speakNeural(text,settings,signal) {
   signal.throwIfAborted();
   const resumed=primeNeural().catch(()=>{});
   const speed=Math.max(.5,Math.min(2,settings.voiceRate));
-  const {pcm,rate}=await synthesize(text,speed,signal);
+  const model=settings.voiceURI===englishVoice.voiceURI || (!settings.voiceURI && /^en\b/i.test(settings.voiceLang)) ? 'en_US-lessac-medium' : 'es_ES-davefx-medium';
+  const {pcm,rate}=await synthesize(text,speed,model,signal);
   signal.throwIfAborted();
   if(context.state!=='running')throw Error('Activa el audio para escuchar la voz neuronal.');
   await resumed;

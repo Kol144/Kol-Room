@@ -20,6 +20,30 @@ const coverURLs = new Map();
 const current = () => projects.find(project => project.id === currentId);
 const selected = () => current()?.repertoire.find(song => song.id === selectedSongId);
 const attemptedArt = new Set();
+const attemptedTempo = new Set();
+let tempoBusy=false;
+function scheduleTempo() {
+  if (tempoBusy || artBusy || !settings.onlineTempo || navigator.onLine===false) return;
+  const project=current();
+  const key=s=>JSON.stringify([project.id,s.id,s.audioId,s.title,s.artist]);
+  const song=project?.repertoire.find(s=>s.audioId && !attemptedTempo.has(key(s)));
+  if (!song) return;
+  attemptedTempo.add(key(song));tempoBusy=true;
+  const expected={...song};
+  setTimeout(async()=>{
+    try {
+      const {findOnlineTempo}=await import('./online-tempo.js');
+      const result=await findOnlineTempo(expected);
+      if (result && settings.onlineTempo) await editProject(project.id,p=>{
+        const item=p.repertoire.find(s=>s.id===song.id);
+        if (item?.audioId===expected.audioId && item.title===expected.title && item.artist===expected.artist) {
+          item.onlineBpm=result.bpm;item.onlineBpmURL=result.url;
+        }
+      });
+    } catch { /* Local analysis remains available when the catalogue cannot answer. */ }
+    finally {tempoBusy=false;scheduleTempo();}
+  },1200);
+}
 let artBusy = false;
 function scheduleArtwork() {
   if (artBusy || !settings.onlineArtwork || navigator.onLine === false) return;
@@ -37,9 +61,9 @@ function scheduleArtwork() {
     const {prepareCover} = await import('./media.js');
     const cover = await prepareCover(image);
     if (settings.onlineArtwork) await applyAsset(project.id,song.id,()=>library.attachOnlineCover(db,project.id,expected,cover));
-  })().catch(()=>{}).finally(()=>setTimeout(()=>{artBusy=false; scheduleArtwork();},1100));
+  })().catch(()=>{}).finally(()=>setTimeout(()=>{artBusy=false; scheduleArtwork();scheduleTempo();},1100));
 }
-window.addEventListener('online',()=>{attemptedArt.clear();scheduleArtwork();});
+window.addEventListener('online',()=>{attemptedArt.clear();attemptedTempo.clear();scheduleArtwork();scheduleTempo();});
 const readPreference = key => {try{return localStorage.getItem(key);}catch{return null;}};
 
 function queueWrite(action) {
@@ -82,6 +106,7 @@ async function saveSong(songId,patch) {
     const song=project.repertoire.find(item=>item.id===songId);
     if(!song) throw Error('La canción ya no está en este proyecto.');
     if ('beatOffset' in patch && !patch.beatOffsetSource) song.beatOffsetSource='manual';
+    if ('bpm' in patch) patch.bpm=Math.round(patch.bpm);
     Object.assign(song,patch,{updatedAt:Date.now()});
   });
   const updated=project.repertoire.find(song=>song.id===songId);
@@ -120,6 +145,7 @@ function saveSettings(patch) {
   localStorage.setItem(settingsKey,JSON.stringify(value));
   settings=value;
   if (patch.onlineArtwork) {attemptedArt.clear(); scheduleArtwork();}
+  if (patch.onlineTempo) {attemptedTempo.clear();scheduleTempo();}
   applyPalette(value.palette);
   return settings;
 }
@@ -234,6 +260,7 @@ function refreshLibrary() {
   const song=editorOpen ? selected() : null;
   renderEditor(song,songs.indexOf(song),songs.length,Boolean(importJob));
   scheduleArtwork();
+  scheduleTempo();
 }
 function switchView(view) {
   if(view!==activeView && activeView==='metronome')stopMetronome();
@@ -264,7 +291,7 @@ async function startMetronome(){
   }catch(error){if(run===metroRun)stopMetronome();throw error;}
 }
 async function saveTempo(){
-  const bpm=Math.min(300,Math.max(20,Math.round((Number($('bpm').value)||current().bpm)*100)/100));
+  const bpm=Math.min(300,Math.max(20,Math.round(Number($('bpm').value)||current().bpm)));
   $('bpm').value=bpm;$('metroTempoLabel').textContent=bpm+' BPM';
   if(standalone){stopMetronome();await startMetronome();}
   await editProject(currentId,project=>{project.bpm=bpm;});
@@ -486,6 +513,10 @@ function bindEvents() {
 }
 async function initialize() {
   try{settings={...settings,...JSON.parse(readPreference(settingsKey)||'{}')};}catch{}
+  if (!settings.soundEntryV2) {
+    settings={...settings,metronomeEnabled:true,soundEntryV2:true};
+    localStorage.setItem(settingsKey,JSON.stringify(settings));
+  }
   applyPalette(settings.palette);
   db=await library.openDB();
   projects=await library.listProjects(db);

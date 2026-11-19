@@ -18,7 +18,7 @@ function clock(seconds) {
 const tempo = (song, general) => {
   if (!song) return '';
   const value = effectiveBpm(song,general);
-  return Number.isFinite(value) ? value.toLocaleString('es', {maximumFractionDigits:1}) + ' BPM' : '';
+  return Number.isFinite(value) ? Math.round(value).toLocaleString('es') + ' BPM' : '';
 };
 const button = (action, text, css = '') => `<button class="btn ${css}" type="button" data-action="${action}">${text}</button>`;
 const ids = (root,key) => Object.fromEntries([...root.querySelectorAll(`[data-${key}]`)].map(el => [el.dataset[key],el]));

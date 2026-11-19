@@ -26,6 +26,9 @@ export function mountEditor({selected,patch,move,remove,close,importAudio,remove
   el('useSongTempo').onclick=setMetroTempo;
   el('songTitleInput').onchange = event => {const title=event.target.value.trim(); if(title) update({title}); else event.target.value=selected().title;};
   el('songArtistInput').onchange = event => update({artist:event.target.value.trim()});
+  el('songPronunciation').onchange=event=>update({pronunciation:event.target.value.trim()});
+  el('songSpeechLanguage').onchange=event=>update({speechLanguage:event.target.value});
+  el('acceptOnlineBpm').onclick=()=>{const song=selected();if(song.onlineBpm)update({bpm:song.onlineBpm,bpmSource:'manual'});};
   el('songBpm').onchange = event => {
     const input=event.target;
     if (!input.value || !input.checkValidity()) {input.reportValidity();input.value=selected().bpm;return;}
@@ -57,6 +60,9 @@ export function mountEditor({selected,patch,move,remove,close,importAudio,remove
     renderedId=song.id;
     el('editorHeading').textContent='Editar · '+song.title;
     set('songTitleInput',song.title);set('songArtistInput',song.artist);set('songBpm',song.bpm);
+    set('songPronunciation',song.pronunciation || '');set('songSpeechLanguage',song.speechLanguage || '');
+    el('acceptOnlineBpm').hidden=!song.onlineBpm;
+    el('acceptOnlineBpm').textContent='Usar BPM de internet · '+(song.onlineBpm || '')+' BPM';
     const key=parseKey(song.key);
     set('songRoot',key.note);set('songMode',key.mode);el('songMode').disabled=!key.note;
     set('restKind',song.restOverride==null?'inherit':song.restOverride===0?'none':'custom');
@@ -73,6 +79,7 @@ export function mountEditor({selected,patch,move,remove,close,importAudio,remove
       if(song.keyConfidence && song.detectedKey) analysis.push('confianza tonal '+Math.round(song.keyConfidence*100)+' %');
     }
     if(song.bpmSource==='manual') analysis.push('BPM manual');
+    if(song.onlineBpm) analysis.push('Tempo de internet '+song.onlineBpm+' BPM · AcousticBrainz');
     if(song.keySource==='manual') analysis.push('Tonalidad manual');
     el('analysisFacts').textContent=analysis.join(' · ');
     for(const id of ['exportAudio','removeAudio','reanalyze'])el(id).hidden=!audio;

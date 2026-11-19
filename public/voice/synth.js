@@ -2,9 +2,10 @@
 importScripts('runtime/piper_phonemize.js','runtime/ort.wasm.min.js');
 ort.env.wasm.numThreads=1;
 ort.env.wasm.wasmPaths=new URL('runtime/',self.location.href).href;
-self.onmessage=async({data:{text,speed}})=>{
+self.onmessage=async({data:{text,speed,model='es_ES-davefx-medium'}})=>{
   try{
-    const config=await (await fetch('es_ES-davefx-medium.onnx.json')).json();
+    if(!['es_ES-davefx-medium','en_US-lessac-medium'].includes(model))throw Error('Voz desconocida.');
+    const config=await (await fetch(model+'.onnx.json')).json();
     const ids=[];
     const phonemizer=await createPiperPhonemize({
       locateFile:name=>new URL('runtime/'+name,self.location.href).href,
@@ -12,7 +13,7 @@ self.onmessage=async({data:{text,speed}})=>{
     });
     phonemizer.callMain(['-l',config.espeak.voice,'--input',JSON.stringify([{text}]),'--espeak_data','/espeak-ng-data']);
     if(!ids.length)throw Error('El título no contiene sonidos pronunciables.');
-    const session=await ort.InferenceSession.create('es_ES-davefx-medium.onnx',{executionProviders:['wasm']});
+    const session=await ort.InferenceSession.create(model+'.onnx',{executionProviders:['wasm']});
     const {noise_scale,length_scale,noise_w}=config.inference;
     const result=await session.run({
       input:new ort.Tensor('int64',BigInt64Array.from(ids,BigInt),[1,ids.length]),

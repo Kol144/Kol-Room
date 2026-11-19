@@ -46,7 +46,7 @@ function rig(settings = {}, getAudio = async id => id) {
     click(at, beat) { clicks.push({at, beat, canceled:false}); },
     cancelClicks() { for (const click of clicks) if (click.at > time / 1000) click.canceled = true; }
   };
-  const engine = new PlaybackEngine({getAudio, getSettings: () => ({announcementGap:0,...settings}), output, timing});
+  const engine = new PlaybackEngine({getAudio, getSettings: () => ({announcementGap:0,metronomeEnabled:false,...settings}), output, timing});
   const tick = ms => {
     while (ms > 0) {
       const step = Math.min(ms, 25); ms -= step; time += step;
@@ -284,4 +284,18 @@ test('metrónomo independiente planifica por adelantado y cancela los clics pend
   assert.ok(r.clicks[1].canceled);
   r.tick(5000);
   assert.equal(r.clicks.length,2);
+});
+
+test('la cuenta da cuatro clics y el clic musical espera al sonido real',async()=>{
+  const r=rig({announcements:false,countIn:true,metronomeEnabled:true});
+  await r.engine.start([song('silencio',{beatOffsetSource:'default'})]);
+  r.engine.track.hasSound=()=>false;
+  r.tick(2100);await drain();
+  assert.equal(r.engine.state,'playing');
+  assert.equal(r.clicks.length,4);
+  r.tick(1000);assert.equal(r.clicks.length,4);
+  r.engine.track.hasSound=()=>true;
+  r.tick(25);assert.equal(r.clicks.length,5);
+  r.tick(500);assert.equal(r.clicks.length,6);
+  r.engine.stop();
 });

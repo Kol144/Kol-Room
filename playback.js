@@ -1,4 +1,5 @@
 import { AudioOutput, BeatGrid, bounded, defaults, effectiveBpm, restAfter, songSpeed, validLoop } from './audio-output.js';
+import {announcement} from './song-speech.js';
 
 const clock = {
   now: () => performance.now(), wall: () => Date.now(),
@@ -195,7 +196,8 @@ export class PlaybackEngine {
     this.setState('announcing');
     this.startClock(() => {});
     try {
-      await this.output.voices.speak(this.song.title, this.settings, signal);
+      const spoken=announcement(this.song,this.settings);
+      await this.output.voices.speak(spoken.text, spoken.settings, signal);
       if (this.allowed(signal)) this.afterAnnouncement();
     } catch (err) {
       if (!this.allowed(signal)) return;
@@ -244,6 +246,8 @@ export class PlaybackEngine {
     this.applyTrack();
     this.lastBeat = null;
     this.lastPaint = -Infinity;
+    this.soundStarted = false;
+    this.liveOffset = null;
     this.buffering = false;
     const listen = (event, fn) => audio.addEventListener(event, fn, {signal});
     listen('ended', () => { if (audio.ended && this.allowed(signal)) this.endMedia(); });
@@ -269,14 +273,19 @@ export class PlaybackEngine {
   resetGrid() {
     this.output.cancelClicks();
     this.lastBeat = null;
+    this.soundStarted=false;
   }
   musicTick() {
     const audio = this.track.audio;
     if (audio.paused || audio.seeking || this.buffering || audio.readyState < 2) return;
     const position = audio.currentTime;
+    if (!this.soundStarted && (!this.track.hasSound || this.track.hasSound())) {
+      this.soundStarted=true;
+      if (this.track.hasSound && this.song.beatOffsetSource==='default' && this.song.detectedBeatOffset==null) this.liveOffset=position;
+    }
     if (this.loop && position >= this.loop.b) return this.endPass();
-    if (this.song.metronomeEnabledOverride ?? this.settings.metronomeEnabled) {
-      const grid = new BeatGrid(this.song);
+    if (this.soundStarted && (this.song.metronomeEnabledOverride ?? this.settings.metronomeEnabled)) {
+      const grid = new BeatGrid(this.liveOffset==null ? this.song : {...this.song,beatOffset:this.liveOffset});
       const rate = audio.playbackRate;
       // Anchor each short look-ahead to the current media position (including playbackRate).
       let beat = this.lastBeat == null ? grid.firstAfter(Math.max(0, position - .018)) : this.lastBeat + 1;
@@ -492,7 +501,7 @@ export class PlaybackEngine {
     if (!inactive(this.state) && this.state !== 'paused') throw new Error('Pausa la sesión para escuchar la voz.');
     this.voicePreview?.abort();
     const task = this.voicePreview = new AbortController();
-    try { await this.output.voices.speak('Kol Room. Todo listo para el ensayo.', this.settings, task.signal); }
+    try { await this.output.voices.speak(/^en\b/i.test(this.settings.voiceLang) ? 'Kol Room. Ready for rehearsal.' : 'Kol Room. Todo listo para el ensayo.', this.settings, task.signal); }
     finally { if (task === this.voicePreview) this.voicePreview = null; }
   }
   supportsOutputs() { return this.output.supportsOutputs(); }

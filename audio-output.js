@@ -1,9 +1,9 @@
 // The music streams from a local Blob. Clicks are synthesized on the audio clock.
-import {spanishVoice,speakNeural,usesNeural,primeNeural} from './neural-voice.js';
+import {spanishVoice,englishVoice,speakNeural,usesNeural,primeNeural} from './neural-voice.js';
 export const defaults = Object.freeze({
   announcementGap: 3,
   announcements: true, voiceURI: '', voiceLang: 'es-ES', voiceRate: 1, voiceVolume: .75,
-  countIn: true, accent: true, clickVolume: .6, clickSound: 'classic', metronomeEnabled: false,
+  countIn: true, accent: true, clickVolume: .6, clickSound: 'classic', metronomeEnabled: true,
   musicVolume: .8, restsEnabled: true, restSeconds: 20, manualReady: false, playbackSpeed: 1,
   preservesPitch: true, splitStereo: false, repeat: false, previewSeconds: 10,
   musicSinkId: '', clickSinkId: ''
@@ -35,7 +35,7 @@ const contextClass = () => globalThis.AudioContext || globalThis.webkitAudioCont
 
 // A different provider can implement voices() and speak(text, settings, signal).
 export class DeviceSpeech {
-  voices() { return [spanishVoice,...(globalThis.speechSynthesis?.getVoices() || [])]; }
+  voices() { return [spanishVoice,englishVoice,...(globalThis.speechSynthesis?.getVoices() || [])]; }
 
   speak(text, settings, signal) {
     if (usesNeural(settings)) {
@@ -165,10 +165,11 @@ export class AudioOutput {
     const audio = new Audio();
     audio.preload = 'auto';
     const url = URL.createObjectURL(blob);
-    let source;
+    let source, analyser;
     const dispose = () => {
       audio.pause();
       source?.disconnect();
+      analyser?.disconnect();
       audio.removeAttribute('src');
       audio.load();
       URL.revokeObjectURL(url);
@@ -196,7 +197,16 @@ export class AudioOutput {
       if (signal.aborted) throw aborted();
       if (this.musicContext) {
         source = this.musicContext.createMediaElementSource(audio);
-        source.connect(this.musicBus.gain);
+        analyser=this.musicContext.createAnalyser();
+        analyser.fftSize=1024;
+        source.connect(analyser).connect(this.musicBus.gain);
+        const samples=new Float32Array(analyser.fftSize);
+        return {audio,dispose,hasSound:()=>{
+          analyser.getFloatTimeDomainData(samples);
+          let power=0;
+          for (const sample of samples) power+=sample*sample;
+          return power/samples.length>1e-7;
+        }};
       }
       return {audio, dispose};
     } catch (err) { dispose(); throw err; }

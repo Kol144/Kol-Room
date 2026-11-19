@@ -4,6 +4,12 @@
 
 Esta copia independiente se guarda en la carpeta `Kol room` y se publica en `Kol144/Kol-Room`.
 
+Los BPM se muestran y guardan como enteros. La consulta opcional a MusicBrainz y AcousticBrainz ofrece un BPM de catálogo para aceptar en el editor cuando existe una grabación coincidente. Las canciones recientes o ausentes del catálogo conservan el análisis local.
+
+La cuenta de entrada mantiene sus cuatro pulsos. Durante la reproducción el clic espera a que el analizador detecte sonido real, incluso en archivos que comienzan con silencio. El metrónomo durante el tema se activa por defecto y puede desactivarse por canción.
+
+Los anuncios pueden usar DaveFX en español o Lessac en inglés. La selección automática reconoce vocabulario frecuente del título. Para nombres propios o resultados ambiguos, el editor permite fijar el idioma y escribir una pronunciación específica. El modelo inglés se descarga en su primer uso y después se conserva en la caché de la web.
+
 Aplicación de ensayo para batería. Reproduce los archivos del dispositivo en el orden del repertorio. La edición mantiene Vite, JavaScript, la navegación en tres vistas, los proyectos originales y la aplicación Android de Capacitor.
 
 ## Abrir en local

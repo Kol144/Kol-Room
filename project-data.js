@@ -18,15 +18,15 @@ export function cleanSong(raw, projectBpm = 120) {
     title: String(song.title || 'Sin título'),
     artist: String(song.artist || ''),
     lyrics: String(song.lyrics || ''),
-    bpm: bounded(song.bpm, 20, 300, bounded(projectBpm, 20, 300, 120)),
+    bpm: Math.round(bounded(song.bpm, 20, 300, bounded(projectBpm, 20, 300, 120))),
     bpmSource: source(song.bpmSource, Number(song.bpm) > 0),
     key: String(song.key || ''),
     keySource: source(song.keySource, Boolean(song.key)),
-    detectedBpm: bounded(song.detectedBpm, 20, 300, null),
+    detectedBpm: song.detectedBpm ? Math.round(bounded(song.detectedBpm, 20, 300, 120)) : null,
     detectedKey: String(song.detectedKey || ''),
     bpmConfidence: bounded(song.bpmConfidence, 0, 1, 0),
     keyConfidence: bounded(song.keyConfidence, 0, 1, 0),
-    bpmAlternatives: Array.isArray(song.bpmAlternatives) ? song.bpmAlternatives : [],
+    bpmAlternatives: Array.isArray(song.bpmAlternatives) ? song.bpmAlternatives.map(Math.round) : [],
     analysisStatus: String(song.analysisStatus || 'Pendiente'),
     audioId: song.audioId || null,
     coverId: song.coverId || null,
@@ -71,10 +71,10 @@ export function cleanProject(raw) {
 // A fresh estimate may replace an earlier estimate. The manual choice
 // (including a deliberately empty key) belongs to the musician.
 export function applyAnalysis(song, result, projectBpm = 120) {
-  const next = { ...song, detectedBpm: result.detectedBpm ?? null, detectedKey: result.detectedKey || '',
+  const next = { ...song, detectedBpm: result.detectedBpm ? Math.round(result.detectedBpm) : null, detectedKey: result.detectedKey || '',
     detectedBeatOffset: result.detectedBeatOffset ?? null,
     bpmConfidence: result.bpmConfidence || 0, keyConfidence: result.keyConfidence || 0,
-    bpmAlternatives: result.bpmAlternatives || [], analysisStatus: result.analysisStatus, updatedAt: Date.now() };
+    bpmAlternatives: (result.bpmAlternatives || []).map(Math.round), analysisStatus: result.analysisStatus, updatedAt: Date.now() };
   if (song.bpmSource !== 'manual') {
     next.bpm = next.detectedBpm || projectBpm;
     next.bpmSource = next.detectedBpm ? 'detected' : 'default';
@@ -84,7 +84,7 @@ export function applyAnalysis(song, result, projectBpm = 120) {
     next.keySource = next.detectedKey ? 'detected' : 'default';
   }
   if (song.beatOffsetSource !== 'manual') {
-    const aligned = next.detectedBeatOffset != null && Math.abs(next.bpm - next.detectedBpm) < .05;
+    const aligned = next.detectedBeatOffset != null && Math.abs(next.bpm - next.detectedBpm) <= .5;
     next.beatOffset = aligned ? next.detectedBeatOffset : 0;
     next.beatOffsetSource = aligned ? 'detected' : 'default';
   }

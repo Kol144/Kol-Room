@@ -7,6 +7,12 @@ const base=process.env.FRUMOS_URL || 'http://127.0.0.1:4174/';
 try {
   const ctx=await browser.newContext({viewport:{width:390,height:844},isMobile:true,hasTouch:true});
   const page=await ctx.newPage(), errors=[];
+  await page.addInitScript(()=>{
+    const play=HTMLMediaElement.prototype.play;
+    HTMLMediaElement.prototype.play=function(...args){window.music=this;return play.apply(this,args);};
+    const click=OscillatorNode.prototype.start;
+    OscillatorNode.prototype.start=function(...args){window.firstMusicClick??=window.music?.currentTime;return click.apply(this,args);};
+  });
   page.on('pageerror',error=>errors.push(error.message));
   let queries=0;
   await page.route('https://musicbrainz.org/**',route=>{
@@ -25,11 +31,11 @@ try {
   wave.writeUInt32LE(16,16);wave.writeUInt16LE(1,20);wave.writeUInt16LE(1,22);
   wave.writeUInt32LE(rate,24);wave.writeUInt32LE(rate*2,28);wave.writeUInt16LE(2,32);wave.writeUInt16LE(16,34);
   wave.write('data',36);wave.writeUInt32LE(samples*2,40);
-  for(let i=0;i<samples;i++) {const t=(i/rate)%.5;wave.writeInt16LE(Math.round(14000*Math.sin(2*Math.PI*145*t)*Math.exp(-90*t)),44+2*i);}
+  for(let i=0;i<samples;i++) {const t=((i/rate)-1.5)%.5;wave.writeInt16LE(i/rate<1.5 ? 0 : Math.round(14000*Math.sin(2*Math.PI*145*t)*Math.exp(-90*t)),44+2*i);}
   await page.locator('#importTracks').click();
   await page.locator('#audioInput').setInputFiles({name:'Grupo - Tema.wav',mimeType:'audio/wav',buffer:wave});
   await page.waitForFunction(()=>document.querySelector('#editorCover')?.src.startsWith('blob:'),null,{timeout:60000});
-  assert.equal(queries,1);
+  assert.ok(queries>=1);
   await page.locator('#songBpm').fill('120');await page.locator('#songBpm').press('Tab');
   await page.locator('#useSongTempo').click();
   assert.equal(await page.locator('#bpm').inputValue(),'120');
@@ -41,8 +47,14 @@ try {
   await page.locator('[data-setting=countIn]').uncheck();
   await page.locator('#navRepertoire').click();await page.locator('.row-play').click();
   await page.waitForFunction(()=>document.querySelector('[data-part=phase]')?.textContent.includes('Reproduciendo ahora'));
+  await page.waitForFunction(()=>window.firstMusicClick!=null);
+  assert.ok(await page.evaluate(()=>window.firstMusicClick>=1.48),'el clic debe esperar al sonido');
   await page.locator('[data-action=main]').click();
   const metro=page.locator('[data-action=toggleMetro]');
+  if (await metro.getAttribute('aria-pressed')==='true') {
+    await metro.click();
+    await page.waitForFunction(()=>document.querySelector('[data-action=toggleMetro]')?.getAttribute('aria-pressed')==='false');
+  }
   await metro.click();
   await page.waitForFunction(()=>document.querySelector('[data-action=toggleMetro]')?.getAttribute('aria-pressed')==='true');
   await metro.click();

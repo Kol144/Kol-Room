@@ -2,7 +2,7 @@ import './player-ui.css';
 import {defaults as audioDefaults} from './audio-output.js';
 
 export const UI_DEFAULTS = Object.freeze({
-  ...audioDefaults, palette: 'original', viewMode: 'rehearsal', wakeLock: false, onlineArtwork: true,
+  ...audioDefaults, palette: 'original', viewMode: 'rehearsal', wakeLock: false, onlineArtwork: true, onlineTempo:true,
 });
 
 export const PALETTES = Object.freeze({
@@ -78,6 +78,8 @@ export function mountSettings(container, {engine, getSettings, saveSettings, sto
     ].join('')),
     group('Almacenamiento local', [
       toggle('onlineArtwork','Buscar portadas con conexión'),
+      toggle('onlineTempo','Consultar BPM en internet'),
+      '<p class="fs-help">La consulta usa título y artista en MusicBrainz y AcousticBrainz. Si hay resultado, puedes aceptarlo desde la canción.</p>',
       '<p class="fs-help">Si falta la portada, se consulta el título, artista o álbum en MusicBrainz y se guarda la imagen de Cover Art Archive en este dispositivo.</p>',
       '<dl class="fs-storage"><div><dt>Canciones importadas</dt><dd data-stat="audioCount">—</dd></div><div><dt>Archivos de audio</dt><dd data-stat="audioBytes">—</dd></div><div><dt>Espacio disponible estimado</dt><dd data-stat="available">—</dd></div><div><dt>Almacenamiento persistente</dt><dd data-stat="persistent">—</dd></div></dl>',
       '<p class="fs-help" data-info="storage"></p><div class="fs-button-row"><button type="button" class="btn" data-action="clean" disabled>Liberar archivos sin usar</button><button type="button" class="btn" data-action="persist">Solicitar almacenamiento persistente</button></div>',
