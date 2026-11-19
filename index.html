@@ -71,7 +71,10 @@
       <fieldset><legend>Archivo musical</legend><p id="audioFacts" class="file-status"></p>
         <div class="editor-actions"><button id="replaceAudio" class="btn">Importar audio</button><button id="exportAudio" class="btn">Exportar audio original</button>
         <button id="exportConverted" class="btn">Exportar WAV convertido</button><button id="removeAudio" class="btn danger">Quitar audio</button></div>
-        <p id="analysisFacts" class="file-status"></p><div class="editor-actions"><button id="reanalyze" class="btn">Volver a analizar</button><button id="acceptOnlineBpm" class="btn" hidden>Usar BPM de internet</button><button id="acceptBpm" class="btn">Aceptar BPM</button><button id="useSongTempo" class="btn">Usar este tempo en el metrónomo</button><button id="acceptKey" class="btn">Aceptar tonalidad</button></div>
+        <p id="analysisFacts" class="file-status"></p>
+        <div class="editor-actions"><button id="searchOnlineBpm" class="btn" type="button">Buscar BPM en internet</button><button id="acceptOnlineBpm" class="btn" type="button" hidden>Usar BPM de internet</button></div>
+        <p id="onlineBpmStatus" class="file-status" role="status" hidden></p>
+        <div class="editor-actions"><button id="reanalyze" class="btn">Volver a analizar</button><button id="acceptBpm" class="btn">Usar BPM del audio</button><button id="useSongTempo" class="btn">Usar este tempo en el metrónomo</button><button id="acceptKey" class="btn">Aceptar tonalidad</button></div>
       </fieldset>
       <fieldset><legend>Portada</legend><div class="editor-actions"><img id="editorCover" class="track-cover" alt="Portada actual">
         <button id="chooseCover" class="btn">Cambiar portada</button><button id="restoreCover" class="btn">Restaurar portada original</button></div></fieldset>

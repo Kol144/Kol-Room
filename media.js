@@ -1,3 +1,4 @@
+import {firstSound} from './sound-onset.js';
 const analysisRate = 11025;
 const maxInput = 64 * 1024 ** 2;
 const maxDuration = 12 * 60;
@@ -66,18 +67,32 @@ async function decoded(blob, rate, signal) {
   return buffer;
 }
 
-function passages(buffer) {
+function mixPassage(channels, start, length) {
+  if (channels.length === 1) return channels[0].slice(start, start + length);
+  const mix = new Float32Array(length);
+  let loudest = channels[0], maxEnergy = 0;
+  for (const channel of channels) {
+    let energy = 0;
+    for (let i = 0; i < length; i++) {
+      const value = channel[start + i];
+      mix[i] += value / channels.length;
+      energy += value * value;
+    }
+    if (energy > maxEnergy) { maxEnergy = energy; loudest = channel; }
+  }
+  let mixEnergy = 0;
+  for (const value of mix) mixEnergy += value * value;
+  if (mixEnergy < maxEnergy * .1) mix.set(loudest.subarray(start, start + length));
+  return mix;
+}
+
+function passages(buffer, channels) {
   const span = Math.min(buffer.length, Math.round(buffer.sampleRate * 18));
   const segments = [], starts = [];
   const count = Math.max(1, Math.min(3, Math.floor(buffer.length / span)));
   for (let n = 0; n < count; n++) {
     const start = count === 1 ? 0 : Math.floor((buffer.length - span) * n / (count - 1));
-    const samples = new Float32Array(span);
-    for (let ch = 0; ch < buffer.numberOfChannels; ch++) {
-      const channel = buffer.getChannelData(ch);
-      for (let i = 0; i < span; i++) samples[i] += channel[start + i] / buffer.numberOfChannels;
-    }
-    segments.push(samples);
+    segments.push(mixPassage(channels, start, span));
     starts.push(start / buffer.sampleRate);
   }
   return {segments, starts};
@@ -92,14 +107,12 @@ async function analyze(blob, duration, options) {
   onStatus?.('Analizando canción…');
   try {
     const buffer = await decoded(blob, analysisRate, signal);
-    const {segments,starts} = passages(buffer);
-    const intro = new Float32Array(Math.min(buffer.length,60*buffer.sampleRate));
-    for (let ch=0;ch<buffer.numberOfChannels;ch++) {
-      const channel=buffer.getChannelData(ch);
-      for (let i=0;i<intro.length;i++) intro[i]+=channel[i]/buffer.numberOfChannels;
-    }
+    const channels = Array.from({length:buffer.numberOfChannels}, (_, i) => buffer.getChannelData(i));
+    const soundOnset = firstSound(channels, buffer.sampleRate);
+    const {segments,starts} = passages(buffer, channels);
+    const intro = mixPassage(channels, 0, Math.min(buffer.length,60*buffer.sampleRate));
     const result = await inWorker({ task: 'analyze', rate: buffer.sampleRate, segments, starts, intro }, signal, [...segments.map(s => s.buffer),intro.buffer]);
-    return { result, duration: buffer.duration };
+    return { result: {...result, soundOnset}, duration: buffer.duration };
   } catch (error) {
     checkSignal(signal);
     return { result: unavailable('Análisis no disponible en este dispositivo.'), duration };
@@ -187,5 +200,6 @@ export async function prepareAudio(file, options = {}) {
   checkSignal(signal);
   return { original: file, playable, cover, duration, name: file.name || 'Audio',
     type: tags.format || file.type || 'Audio', tagTitle: tags.title || '', tagArtist: tags.artist || '',
-    tagAlbum: tags.album || '', tagRelease: tags.release || '', analysis: result };
+    tagAlbum: tags.album || '', tagRelease: tags.release || '', tagRecording: tags.recording || '',
+    tagIsrc: tags.isrc || '', analysis: result };
 }

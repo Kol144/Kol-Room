@@ -170,6 +170,8 @@ export class PlaybackEngine {
       this.applyTrack();
       if (this.loop && !validLoop(this.loop, this.duration)) return this.fail(new Error('El fragmento A–B no está dentro del audio.'));
       if (this.loop) track.audio.currentTime = this.loop.a;
+      this.liveOnset = null;
+      this.resetPosition(track.audio.currentTime);
       if (opened) {
         this.stopClock();
         this.pausedFrom = 'loaded';
@@ -246,15 +248,12 @@ export class PlaybackEngine {
     this.applyTrack();
     this.lastBeat = null;
     this.lastPaint = -Infinity;
-    this.soundStarted = false;
-    this.liveOffset = null;
     this.buffering = false;
     const listen = (event, fn) => audio.addEventListener(event, fn, {signal});
     listen('ended', () => { if (audio.ended && this.allowed(signal)) this.endMedia(); });
     listen('error', () => this.fail(new Error('Se ha interrumpido la lectura del audio. Puedes reintentar u omitir la canción.')));
-    for (const event of ['waiting', 'seeking']) listen(event, () => {
-      this.buffering = true; this.resetGrid();
-    });
+    listen('waiting', () => { this.buffering = true; this.resetGrid(); });
+    listen('seeking', () => { this.buffering = true; this.resetPosition(audio.currentTime); this.resetGrid(); });
     for (const event of ['playing', 'seeked']) listen(event, () => {
       this.buffering = audio.seeking || audio.readyState < 3; this.resetGrid();
     });
@@ -273,30 +272,57 @@ export class PlaybackEngine {
   resetGrid() {
     this.output.cancelClicks();
     this.lastBeat = null;
-    this.soundStarted=false;
+    const onset = this.song?.soundOnset ?? this.liveOnset;
+    if (onset != null && this.track?.audio.currentTime < onset) this.entryPending = true;
+  }
+  resetPosition(position) {
+    const onset = this.song.soundOnset ?? this.liveOnset;
+    this.seekOnset = null;
+    this.segmentStart = position;
+    this.listeningFromStart = position <= .025;
+    this.heardAfterSeek = false;
+    this.entryPending = onset == null ? this.listeningFromStart : position <= onset;
   }
   musicTick() {
     const audio = this.track.audio;
     if (audio.paused || audio.seeking || this.buffering || audio.readyState < 2) return;
     const position = audio.currentTime;
-    if (!this.soundStarted && (!this.track.hasSound || this.track.hasSound())) {
-      this.soundStarted=true;
-      if (this.track.hasSound && this.song.beatOffsetSource==='default' && this.song.detectedBeatOffset==null) this.liveOffset=position;
-    }
     if (this.loop && position >= this.loop.b) return this.endPass();
-    if (this.soundStarted && (this.song.metronomeEnabledOverride ?? this.settings.metronomeEnabled)) {
-      const grid = new BeatGrid(this.liveOffset==null ? this.song : {...this.song,beatOffset:this.liveOffset});
-      const rate = audio.playbackRate;
-      // Anchor each short look-ahead to the current media position (including playbackRate).
-      let beat = this.lastBeat == null ? grid.firstAfter(Math.max(0, position - .018)) : this.lastBeat + 1;
-      beat = Math.max(beat, grid.firstAfter(position - .025));
-      const boundary = Math.min(position + .12 * rate, this.loop?.b ?? this.duration);
-      while (grid.at(beat) < boundary) {
-        this.output.click(this.output.time + Math.max(0, grid.at(beat) - position) / rate, beat);
-        this.lastBeat = beat++;
-      }
-    }
+    this.scheduleMusicClicks(position, audio.playbackRate);
     if (this.timing.now() - this.lastPaint >= 100) { this.lastPaint = this.timing.now(); this.emit(); }
+  }
+  scheduleMusicClicks(position, rate) {
+    let onset = this.song.soundOnset ?? this.liveOnset ?? this.seekOnset;
+    if (onset == null && this.track.soundAge && !this.heardAfterSeek) {
+      const age = this.track.soundAge();
+      if (age == null) return;
+      this.heardAfterSeek = true;
+      const heardAt = Math.max(this.segmentStart, position - age * rate);
+      if (this.listeningFromStart) this.liveOnset = onset = heardAt;
+      else if (heardAt - this.segmentStart > .12 * rate) {
+        this.seekOnset = onset = heardAt;
+        this.entryPending = true;
+      } else this.seekOnset = onset = 0;
+    }
+    if (!(this.song.metronomeEnabledOverride ?? this.settings.metronomeEnabled)) {
+      if (onset != null && position >= onset) this.entryPending = false;
+      return;
+    }
+    const boundary = Math.min(position + .12 * rate, this.loop?.b ?? this.duration);
+    if (onset != null && boundary <= onset) return;
+    const grid = new BeatGrid(this.song, onset);
+    const at = mediaTime => this.output.time + Math.max(0, mediaTime - position) / rate;
+    if (onset != null && this.entryPending) {
+      this.output.click(at(onset), 0);
+      this.entryPending = false;
+    }
+    // The first cue follows the audible sample. Subsequent beats retain their
+    // original recording phase, including after pausing, seeking and speed changes.
+    let beat = Math.max(onset == null ? 0 : 1, (this.lastBeat ?? -1) + 1, grid.firstAfter(position - .012 * rate));
+    while (grid.at(beat) < boundary) {
+      this.output.click(at(grid.at(beat)), beat + grid.beatNumber);
+      this.lastBeat = beat++;
+    }
   }
   endPass() {
     this.passes++;
@@ -381,6 +407,7 @@ export class PlaybackEngine {
     if (this.state === 'paused' && !['loaded','playing','practice'].includes(this.pausedFrom)) return;
     this.resetGrid();
     this.track.audio.currentTime = bounded(position, 0, this.duration);
+    this.resetPosition(this.track.audio.currentTime);
     this.emit();
   }
   updateSong(song) {
@@ -390,7 +417,7 @@ export class PlaybackEngine {
     this.queue[index] = {...old, ...song};
     if (index === this.index) {
       this.applyTrack();
-      if (['bpm','playbackSpeed','beatOffset','metronomeEnabledOverride'].some(key => old[key] !== this.song[key])) {
+      if (['bpm','bpmSource','detectedBeatPeriod','playbackSpeed','beatOffset','beatOffsetSource','soundOnset','metronomeEnabledOverride'].some(key => old[key] !== this.song[key])) {
         this.resetGridIfPlaying();
       }
       if (this.state === 'countIn' && effectiveBpm(old, this.settings) !== effectiveBpm(this.song, this.settings)) this.countIn();
@@ -527,7 +554,7 @@ export class PlaybackEngine {
       try { await this.output.setOutputs(settings.musicSinkId || '', settings.clickSinkId || ''); }
       catch (err) { this.message = err.message; this.emit(); }
       if (task.signal.aborted) return;
-      const interval = 60 / bounded(bpm, 20, 300, 120);
+      const interval = 60 / Math.round(bounded(bpm, 20, 300, 120));
       const first = this.output.time + .035;
       let beat = 0;
       const schedule = () => {

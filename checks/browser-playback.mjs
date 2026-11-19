@@ -14,7 +14,7 @@ try {
   await page.route(entry + '**', async route => {
     const path = new URL(route.request().url()).pathname;
     if (path === '/') return route.fulfill({contentType:'text/html',body:'<html lang="es"><title>Prueba Frumos</title><button>Activar audio</button></html>'});
-    if (!['/playback.js','/audio-output.js','/neural-voice.js'].includes(path)) return route.abort();
+    if (!['/playback.js','/audio-output.js','/neural-voice.js','/sound-onset.js','/song-speech.js'].includes(path)) return route.abort();
     await route.fulfill({contentType:'text/javascript',body:await readFile(new URL('..' + path, import.meta.url))});
   });
   await page.goto(entry);
@@ -32,7 +32,7 @@ try {
       return new Blob([bytes],{type:'audio/wav'});
     }
     window.result = {states:[], musicTiming:[], clicks:[]};
-    window.settings = {announcements:false, restSeconds:.4, countIn:true};
+    window.settings = {announcements:false, restSeconds:.4, countIn:true, metronomeEnabled:false};
     window.output = new AudioOutput();
     const nativeClick = output.click.bind(output);
     output.click = (at, beat, visual) => {

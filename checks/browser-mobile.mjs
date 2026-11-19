@@ -11,10 +11,23 @@ try {
     const play=HTMLMediaElement.prototype.play;
     HTMLMediaElement.prototype.play=function(...args){window.music=this;return play.apply(this,args);};
     const click=OscillatorNode.prototype.start;
-    OscillatorNode.prototype.start=function(...args){window.firstMusicClick??=window.music?.currentTime;return click.apply(this,args);};
+    OscillatorNode.prototype.start=function(at){
+      const music=window.music;
+      if(music && !music.paused) window.firstMusicClick??=music.currentTime+Math.max(0,at-this.context.currentTime)*music.playbackRate;
+      return click.call(this,at);
+    };
   });
   page.on('pageerror',error=>errors.push(error.message));
   let queries=0;
+  let tempoQueries=0;
+  const id='12345678-1234-1234-1234-123456789abc';
+  await page.route('https://api.reccobeats.com/**',route=>{
+    if(route.request().url().includes('/search?')){
+      tempoQueries++;
+      return route.fulfill({json:{content:[{id,trackTitle:'Tema',durationMs:12000,artists:[{name:'Grupo'}]}],totalElements:1}});
+    }
+    return route.fulfill({json:{tempo:118.73}});
+  });
   await page.route('https://musicbrainz.org/**',route=>{
     queries++;
     return route.fulfill({json:{count:1,recordings:[{title:'Tema', 'artist-credit':[{name:'Grupo'}],
@@ -26,17 +39,30 @@ try {
   await page.locator('#projectSelect option').first().waitFor({state:'attached'});
   assert.match(await page.title(),/Kol Room/);
   assert.match(await page.locator('.brand').innerText(),/Kol Room/);
-  const rate=16000, samples=rate*12, wave=Buffer.alloc(44+samples*2);
+  const onset=1.733, drums=4.487;
+  const rate=16000, samples=rate*12, wave=Buffer.alloc(44+samples*4);
   wave.write('RIFF');wave.writeUInt32LE(wave.length-8,4);wave.write('WAVEfmt ',8);
-  wave.writeUInt32LE(16,16);wave.writeUInt16LE(1,20);wave.writeUInt16LE(1,22);
-  wave.writeUInt32LE(rate,24);wave.writeUInt32LE(rate*2,28);wave.writeUInt16LE(2,32);wave.writeUInt16LE(16,34);
-  wave.write('data',36);wave.writeUInt32LE(samples*2,40);
-  for(let i=0;i<samples;i++) {const t=((i/rate)-1.5)%.5;wave.writeInt16LE(i/rate<1.5 ? 0 : Math.round(14000*Math.sin(2*Math.PI*145*t)*Math.exp(-90*t)),44+2*i);}
+  wave.writeUInt32LE(16,16);wave.writeUInt16LE(1,20);wave.writeUInt16LE(2,22);
+  wave.writeUInt32LE(rate,24);wave.writeUInt32LE(rate*4,28);wave.writeUInt16LE(4,32);wave.writeUInt16LE(16,34);
+  wave.write('data',36);wave.writeUInt32LE(samples*4,40);
+  for(let i=0;i<samples;i++) {
+    const time=i/rate, t=(time-drums)%.5;
+    const note=time>=onset && time<onset+.4 ? 500*Math.sin(2*Math.PI*330*(time-onset)) : 0;
+    const beat=time>=drums ? 14000*Math.sin(2*Math.PI*145*t)*Math.exp(-90*t) : 0;
+    wave.writeInt16LE(Math.round(note+beat),44+4*i);
+    wave.writeInt16LE(-Math.round(note+beat),46+4*i);
+  }
   await page.locator('#importTracks').click();
   await page.locator('#audioInput').setInputFiles({name:'Grupo - Tema.wav',mimeType:'audio/wav',buffer:wave});
   await page.waitForFunction(()=>document.querySelector('#editorCover')?.src.startsWith('blob:'),null,{timeout:60000});
   assert.ok(queries>=1);
-  await page.locator('#songBpm').fill('120');await page.locator('#songBpm').press('Tab');
+  await page.waitForFunction(()=>document.querySelector('#onlineBpmStatus')?.textContent.includes('119 BPM · Aplicado'));
+  assert.equal(await page.locator('#songBpm').inputValue(),'119');
+  await page.locator('#songBpm').fill('119.6');await page.locator('#songBpm').press('Tab');
+  await page.locator('#searchOnlineBpm').click();
+  await page.waitForFunction(()=>!document.querySelector('#searchOnlineBpm').disabled);
+  assert.equal(tempoQueries,2);
+  assert.equal(await page.locator('#songBpm').inputValue(),'120');
   await page.locator('#useSongTempo').click();
   assert.equal(await page.locator('#bpm').inputValue(),'120');
   await page.locator('#navMetronome').click();
@@ -48,7 +74,8 @@ try {
   await page.locator('#navRepertoire').click();await page.locator('.row-play').click();
   await page.waitForFunction(()=>document.querySelector('[data-part=phase]')?.textContent.includes('Reproduciendo ahora'));
   await page.waitForFunction(()=>window.firstMusicClick!=null);
-  assert.ok(await page.evaluate(()=>window.firstMusicClick>=1.48),'el clic debe esperar al sonido');
+  const firstClick=await page.evaluate(()=>window.firstMusicClick);
+  assert.ok(Math.abs(firstClick-onset)<.04,'primer clic programado a '+firstClick);
   await page.locator('[data-action=main]').click();
   const metro=page.locator('[data-action=toggleMetro]');
   if (await metro.getAttribute('aria-pressed')==='true') {
@@ -71,6 +98,27 @@ try {
   await ctx.setOffline(true);await page.reload();
   await page.locator('.track-title').click();
   await page.waitForFunction(()=>document.querySelector('#editorCover')?.src.startsWith('blob:'));
+  assert.match(await page.locator('#onlineBpmStatus').textContent(),/119 BPM.*Sin conexión/);
+  // Simulate a song saved by an older build with a late drum marker and no sample onset.
+  await page.evaluate(()=>new Promise((resolve,reject)=>{
+    const open=indexedDB.open('pulso_sampler_v1');
+    open.onsuccess=()=>{
+      const db=open.result,tx=db.transaction('projects','readwrite'),store=tx.objectStore('projects');
+      const get=store.getAll();
+      get.onsuccess=()=>{
+        const project=get.result[0],song=project.repertoire[0];
+        delete song.soundOnset;
+        Object.assign(song,{beatOffset:7.241,detectedBeatOffset:7.241,beatOffsetSource:'detected',metronomeEnabledOverride:true,playbackSpeed:1});
+        store.put(project);
+      };
+      tx.oncomplete=()=>{db.close();resolve();};tx.onabort=()=>reject(tx.error);
+    };
+    open.onerror=()=>reject(open.error);
+  }));
+  await page.reload();await page.locator('.row-play').click();
+  await page.waitForFunction(()=>window.firstMusicClick!=null,null,{timeout:12000});
+  const legacyClick=await page.evaluate(()=>window.firstMusicClick);
+  assert.ok(legacyClick>=onset-.005 && legacyClick<=onset+.12,'primer clic en una canción antigua a '+legacyClick);
   assert.deepEqual(errors,[]);
-  console.log('Kol Room móvil, portada automática persistente, copia del tempo y ajuste musical a 108 BPM verificados.');
+  console.log(JSON.stringify({onset,firstClick,legacyClick,firstDrum:drums,tempoQueries,projectTempo:108}));
 } finally {await browser.close();}

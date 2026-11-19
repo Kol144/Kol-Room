@@ -4,9 +4,9 @@
 
 Esta copia independiente se guarda en la carpeta `Kol room` y se publica en `Kol144/Kol-Room`.
 
-Los BPM se muestran y guardan como enteros. La consulta opcional a MusicBrainz y AcousticBrainz ofrece un BPM de catálogo para aceptar en el editor cuando existe una grabación coincidente. Las canciones recientes o ausentes del catálogo conservan el análisis local.
+Los BPM se muestran y guardan como enteros. Al importar con conexión se consulta ReccoBeats y, si hace falta, MusicBrainz y AcousticBrainz. Una grabación identificada por sus etiquetas o por título, artista y duración puede fijar el tempo del metrónomo. El editor muestra la fuente, permite volver a buscar y respeta los ajustes manuales. Si la búsqueda queda sin resultado, se conserva el tempo local.
 
-La cuenta de entrada mantiene sus cuatro pulsos. Durante la reproducción el clic espera a que el analizador detecte sonido real, incluso en archivos que comienzan con silencio. El metrónomo durante el tema se activa por defecto y puede desactivarse por canción.
+La cuenta de entrada opcional da cuatro pulsos antes de reproducir el archivo. Dentro del tema, el primer clic coincide con el primer sonido audible, incluso si hay silencio inicial o la batería entra más tarde. Las canciones antiguas también pueden detectar la entrada durante la reproducción. Los pulsos siguientes siguen el intervalo medido en segundos, con la fase de la grabación cuando se ha podido estimar.
 
 Los anuncios pueden usar DaveFX en español o Lessac en inglés. La selección automática reconoce vocabulario frecuente del título. Para nombres propios o resultados ambiguos, el editor permite fijar el idioma y escribir una pronunciación específica. El modelo inglés se descarga en su primer uso y después se conserva en la caché de la web.
 

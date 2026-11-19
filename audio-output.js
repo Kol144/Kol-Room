@@ -1,5 +1,6 @@
 // The music streams from a local Blob. Clicks are synthesized on the audio clock.
 import {spanishVoice,englishVoice,speakNeural,usesNeural,primeNeural} from './neural-voice.js';
+import {firstSound} from './sound-onset.js';
 export const defaults = Object.freeze({
   announcementGap: 3,
   announcements: true, voiceURI: '', voiceLang: 'es-ES', voiceRate: 1, voiceVolume: .75,
@@ -15,16 +16,40 @@ export function bounded(value, min, max, fallback = min) {
 }
 
 export const songSpeed = (song, settings) => bounded(song?.playbackSpeed ?? settings.playbackSpeed, .75, 1.25, 1);
-export const effectiveBpm = (song, settings) => bounded(song?.bpm, 20, 300, 120) * songSpeed(song, settings);
+export function beatPeriod(song) {
+  const bpm = Math.round(bounded(song?.bpm, 20, 300, 120));
+  // Keep the measured interval in seconds. Rounding it to an integer BPM
+  // accumulates an audible phase error over the length of a recording.
+  const measured = song?.detectedBeatPeriod;
+  if (song?.bpmSource !== 'manual' && measured >= .2 && measured <= 3) {
+    for (const factor of [1, .5, 2]) {
+      const period = measured * factor;
+      if (Math.round(60 / period) === bpm) return period;
+    }
+  }
+  if (song?.bpmSource === 'online' && Math.round(60 / song.onlineBeatPeriod) === bpm) return song.onlineBeatPeriod;
+  return 60 / bpm;
+}
+export const effectiveBpm = (song, settings) => 60 / beatPeriod(song) * songSpeed(song, settings);
 export const restAfter = (song, settings) => bounded(song?.restOverride ?? (settings.restsEnabled ? settings.restSeconds : 0), 0, 86400);
 export const validLoop = (loop, duration) => !!loop && Number.isFinite(loop.a) && Number.isFinite(loop.b)
   && loop.a >= 0 && loop.b <= duration && loop.b - loop.a >= .15;
 
 // A constant-tempo grid in media seconds. A future tempo map can implement these operations.
 export class BeatGrid {
-  constructor(song) {
-    this.interval = 60 / bounded(song.bpm, 20, 300, 120);
+  constructor(song, onset = null) {
+    this.interval = beatPeriod(song);
     this.offset = Number(song.beatOffset) || 0;
+    this.beatNumber = 0;
+    if (onset != null) {
+      const detected = song.detectedBpm && [1, .5, 2].some(factor => Math.abs(song.detectedBpm * factor - song.bpm) <= 1);
+      if (song.beatOffsetSource === 'manual' || (song.beatOffsetSource === 'detected' && detected)) {
+        // Extend the measured phase back through an intro without moving the
+        // first audible cue to the first clearly identifiable drum hit.
+        this.beatNumber = Math.round((onset - this.offset) / this.interval);
+        this.offset += this.beatNumber * this.interval;
+      } else this.offset = onset;
+    }
   }
   at(index) { return this.offset + index * this.interval; }
   firstAfter(position) { return Math.max(0, Math.ceil((position - this.offset) / this.interval - 1e-7)); }
@@ -165,11 +190,13 @@ export class AudioOutput {
     const audio = new Audio();
     audio.preload = 'auto';
     const url = URL.createObjectURL(blob);
-    let source, analyser;
+    let source, splitter;
+    const analysers = [];
     const dispose = () => {
       audio.pause();
       source?.disconnect();
-      analyser?.disconnect();
+      splitter?.disconnect();
+      for (const analyser of analysers) analyser.disconnect();
       audio.removeAttribute('src');
       audio.load();
       URL.revokeObjectURL(url);
@@ -197,15 +224,22 @@ export class AudioOutput {
       if (signal.aborted) throw aborted();
       if (this.musicContext) {
         source = this.musicContext.createMediaElementSource(audio);
-        analyser=this.musicContext.createAnalyser();
-        analyser.fftSize=1024;
-        source.connect(analyser).connect(this.musicBus.gain);
-        const samples=new Float32Array(analyser.fftSize);
-        return {audio,dispose,hasSound:()=>{
-          analyser.getFloatTimeDomainData(samples);
-          let power=0;
-          for (const sample of samples) power+=sample*sample;
-          return power/samples.length>1e-7;
+        source.connect(this.musicBus.gain);
+        splitter = this.musicContext.createChannelSplitter(2);
+        source.connect(splitter);
+        const rate = this.musicContext.sampleRate;
+        const size = Math.min(32768, 2 ** Math.ceil(Math.log2(rate * .055)));
+        const channels = Array.from({length:2}, (_, i) => {
+          const analyser = this.musicContext.createAnalyser();
+          analyser.fftSize = size;
+          splitter.connect(analyser, i);
+          analysers.push(analyser);
+          return new Float32Array(size);
+        });
+        return {audio,dispose,soundAge:() => {
+          analysers.forEach((analyser, i) => analyser.getFloatTimeDomainData(channels[i]));
+          const onset = firstSound(channels, rate);
+          return onset == null ? null : size / rate - onset;
         }};
       }
       return {audio, dispose};

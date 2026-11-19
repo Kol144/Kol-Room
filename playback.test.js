@@ -288,14 +288,49 @@ test('metrónomo independiente planifica por adelantado y cancela los clics pend
 
 test('la cuenta da cuatro clics y el clic musical espera al sonido real',async()=>{
   const r=rig({announcements:false,countIn:true,metronomeEnabled:true});
-  await r.engine.start([song('silencio',{beatOffsetSource:'default'})]);
-  r.engine.track.hasSound=()=>false;
+  await r.engine.start([song('silencio',{beatOffsetSource:'detected',beatOffset:7.12,detectedBeatOffset:7.12,detectedBpm:120})]);
+  r.engine.track.soundAge=()=>null;
   r.tick(2100);await drain();
   assert.equal(r.engine.state,'playing');
   assert.equal(r.clicks.length,4);
   r.tick(1000);assert.equal(r.clicks.length,4);
-  r.engine.track.hasSound=()=>true;
+  const audible=r.output.time+.025;
+  r.engine.track.soundAge=()=>.003;
   r.tick(25);assert.equal(r.clicks.length,5);
-  r.tick(500);assert.equal(r.clicks.length,6);
+  assert.ok(Math.abs(r.clicks[4].at-audible)<.002);
+  r.tick(600);assert.equal(r.clicks.length,6);
+  r.engine.stop();
+});
+
+test('el primer clic coincide con la nota inicial y la cuadrícula sigue en fase al pausar y buscar',async()=>{
+  const r=rig({announcements:false,countIn:false,metronomeEnabled:true});
+  const onset=2.371, firstDrum=6.486;
+  await r.engine.start([song('intro',{soundOnset:onset,beatOffset:firstDrum,beatOffsetSource:'detected',detectedBpm:120})]);
+  await drain();
+  r.tick(2150); assert.equal(r.clicks.length,0);
+  r.tick(1300);
+  assert.ok(Math.abs(r.clicks[0].at-onset)<.001);
+  assert.ok(Math.abs(r.clicks[1].at-(firstDrum-7*.5))<.001);
+  const media=r.media[0];
+  r.engine.pause(); const before=r.clicks.length;
+  r.tick(300);await r.engine.resume();r.tick(500);
+  assert.ok(r.clicks.slice(before).every(c=>Math.abs((c.at-.3-firstDrum)/.5-Math.round((c.at-.3-firstDrum)/.5))<.001));
+  r.engine.seek(.4);
+  const atSeek=r.output.time;
+  r.tick(1750);
+  assert.ok(media.currentTime<onset);
+  const afterSeek=r.clicks.length;
+  r.tick(400);
+  assert.ok(Math.abs(r.clicks[afterSeek].at-(atSeek+onset-.4))<.001);
+  r.engine.stop();
+});
+
+test('el silencio completo nunca activa el metrónomo musical',async()=>{
+  const r=rig({announcements:false,countIn:false,metronomeEnabled:true});
+  await r.engine.open(song('vacío',{beatOffset:0,beatOffsetSource:'detected'}));
+  r.engine.track.soundAge=()=>null;
+  await r.engine.resume();
+  r.tick(8000);
+  assert.equal(r.clicks.length,0);
   r.engine.stop();
 });

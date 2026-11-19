@@ -2,7 +2,9 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { IDBFactory } from 'fake-indexeddb';
 import { analyzeSegments } from './analysis.js';
-import { applyAnalysis, cleanProject } from './project-data.js';
+import { applyAnalysis, applyOnlineTempo, cleanProject } from './project-data.js';
+import { firstSound } from './sound-onset.js';
+import { BeatGrid } from './audio-output.js';
 import { artworkIdentity, coverCandidates, findArtwork } from './artwork.js';
 import {findOnlineTempo} from './online-tempo.js';
 import {announcement} from './song-speech.js';
@@ -145,9 +147,66 @@ test('los BPM se redondean y los títulos ingleses usan fonética inglesa con co
   assert.equal(spoken.text,'kill your vibe');
   assert.equal(spoken.settings.voiceURI,'kolroom:piper-lessac-en');
   assert.equal(announcement({title:'Otro',pronunciation:'Mi nombre',speechLanguage:'es-ES'},{}).text,'Mi nombre');
-  const result=await findOnlineTempo({title:'Tema',artist:'Banda',duration:180},async url=>({ok:true,json:async()=>
-    String(url).includes('musicbrainz.org') ? {recordings:[{id:'12345678-1234-1234-1234-123456789abc',title:'Tema',length:180000,'artist-credit':[{name:'Banda'}]}]} : {rhythm:{bpm:123.7}}}));
+  const project=cleanProject({bpm:127.8,repertoire:[{onlineBpm:148.07}]});
+  assert.equal(project.bpm,128);
+  assert.equal(project.repertoire[0].onlineBpm,148);
+  assert.equal(applyAnalysis({bpmSource:'default'},{},119.6).bpm,120);
+});
+
+test('el catálogo distingue versiones y artistas y guarda el entero sin pisar un tempo manual', async () => {
+  const id='12345678-1234-1234-1234-123456789abc';
+  const row={id,trackTitle:'Kill Ur Vibe',artists:[{name:'All Time Low'}],durationMs:210101};
+  const rows=[{...row,id:id.replace('1','2'),artists:[{name:'Otro'}]}, {...row,id:id.replace('1','3'),durationMs:247000}, row];
+  const lookup=async url=>{
+    if(url.includes('/search?'))return Response.json({content:rows,totalElements:3});
+    assert.ok(url.includes(id+'/audio-features'),url);
+    return Response.json({tempo:148.07});
+  };
+  const result=await findOnlineTempo({title:'All Time Low - kill ur vibe',duration:210},lookup);
+  assert.equal(result.source,'ReccoBeats');
+  assert.equal(result.bpm,148);
+  const song={bpm:74,bpmSource:'detected',detectedBpm:74};
+  applyOnlineTempo(song,result);
+  assert.equal(song.bpm,148);
+  assert.equal(song.bpmSource,'online');
+  assert.equal(cleanProject({repertoire:[song]}).repertoire[0].bpmSource,'online');
+  assert.equal(applyAnalysis(song,analysis).bpm,148);
+  song.bpm=135;song.bpmSource='manual';
+  applyOnlineTempo(song,result);
+  assert.equal(song.bpm,135);
+  assert.equal(song.onlineBpm,148);
+  const ambiguous=await findOnlineTempo({title:'Kill Ur Vibe',duration:210},async url=>
+    Response.json(url.includes('/search?')?{content:rows,totalElements:3}:{recordings:[]}));
+  assert.equal(ambiguous,null);
+});
+
+test('AcousticBrainz consulta varias grabaciones juntas aunque falle el primer catálogo', async () => {
+  const ids=['12345678-1234-1234-1234-123456789abc','23456789-1234-1234-1234-123456789abc'];
+  const result=await findOnlineTempo({title:'Tema',artist:'Banda',duration:180},async url=>{
+    if(url.includes('reccobeats'))return new Response('',{status:503});
+    const params=new URL(url).searchParams;
+    if(url.includes('musicbrainz.org')){
+      assert.match(params.get('query'),/dur:/);
+      return Response.json({recordings:ids.map(id=>({id,title:'Tema',length:180000,'artist-credit':[{name:'Banda'}]}))});
+    }
+    assert.equal(params.get('recording_ids'),ids.join(';'));
+    return Response.json({[ids[1]]:{0:{rhythm:{bpm:123.7}}}});
+  });
   assert.equal(result.bpm,124);
+  assert.equal(result.source,'AcousticBrainz');
+});
+
+test('el primer sonido aparece antes de la batería, incluso en estéreo en contrafase', () => {
+  const onset=1.367, drums=3.711;
+  const left=Float32Array.from({length:rate*8},(_,i)=>{
+    const time=i/rate, t=time-onset, beat=(time-drums)%.5;
+    return t<0 ? .00006*Math.sin(i) : .008*Math.sin(2*Math.PI*330*t) +
+      (time>=drums ? Math.sin(2*Math.PI*140*beat)*Math.exp(-90*beat) : 0);
+  });
+  const right=left.map(v=>-v);
+  const actual=firstSound([left,right],rate);
+  assert.ok(Math.abs(actual-onset)<.003,actual);
+  assert.equal(firstSound([left.subarray(0,rate)],rate),null);
 });
 test('el primer golpe real descarta silencio inicial y un transitorio aislado', () => {
   const first=2.173,bpm=120,period=60/bpm;
@@ -172,6 +231,9 @@ test('el tempo fraccionario y el desfase se conservan entre pasajes distantes co
   assert.ok(Math.abs(result.detectedBeatOffset-offset)<.025,JSON.stringify(result));
   const song=applyAnalysis({bpmSource:'default'},result);
   assert.equal(song.beatOffset,result.detectedBeatOffset);
+  const saved=cleanProject({repertoire:[song]}).repertoire[0];
+  assert.equal(saved.bpm,123);
+  assert.ok(Math.abs(new BeatGrid(saved).at(300)-(offset+300*period))<.05);
   assert.equal(applyAnalysis({...song,beatOffset:0,beatOffsetSource:'manual'},result).beatOffset,0);
 });
 function pulses(bpm) {

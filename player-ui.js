@@ -1,5 +1,5 @@
 import './player-ui.css';
-import {effectiveBpm, validLoop} from './audio-output.js';
+import {beatPeriod, effectiveBpm, validLoop} from './audio-output.js';
 
 const coverFallback = './icons/drum-cover.webp';
 const terminalStates = new Set(['idle','finished','error']);
@@ -279,7 +279,7 @@ export function mountPlayer(container, {engine, getSettings, getProjectTempo, sa
     btn.toggleMetro.disabled = !song || preview;
     if (!speedDirty) { draftRate = actualRate(); f.speed.value = draftRate; }
     p.speed.value = speedValue(draftRate);
-    const target = getProjectTempo(), ratio = target / song?.bpm;
+    const target = getProjectTempo(), ratio = target * beatPeriod(song) / 60;
     btn.matchTempo.textContent = 'Ajustar al metrónomo · '+target+' BPM';
     btn.matchTempo.disabled = !song || preview || ratio < .75 || ratio > 1.25;
     p.speedHelp.textContent = `Aplicada: ${speedValue(actualRate())}. La comparación comienza en la posición de la barra y usa el mismo fragmento a ambas velocidades.`;
@@ -359,7 +359,7 @@ export function mountPlayer(container, {engine, getSettings, getProjectTempo, sa
       case 'toggleMetro': await changeSong({metronomeEnabledOverride:!(song.metronomeEnabledOverride ?? getSettings().metronomeEnabled)}); break;
       case 'preview': await engine.preview(song,draftRate,state.position || 0); break;
       case 'cancelPreview': engine.cancelPreview(); break;
-      case 'matchTempo': draftRate=getProjectTempo()/song.bpm; speedDirty=true; f.speed.value=draftRate; break;
+      case 'matchTempo': draftRate=getProjectTempo()*beatPeriod(song)/60; speedDirty=true; f.speed.value=draftRate; break;
       case 'applySpeed': await changeSong({playbackSpeed:draftRate}); speedDirty = false; break;
       case 'resetSpeed': await changeSong({playbackSpeed:1}); speedDirty = false; break;
       case 'cancelSpeed': speedDirty = false; break;
