@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#101010">
+  <title>Kol Room — Drummer Edition</title>
+  <meta name="description" content="Repertorios, metrónomo y práctica de batería con tus archivos en este dispositivo.">
+  <link rel="manifest" href="./manifest.webmanifest">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="Kol Room">
+  <link rel="apple-touch-icon" href="./icons/frumos-space.png">
+  <link rel="stylesheet" href="./app.css">
+  <link rel="icon" href="./icons/frumos.svg">
+</head>
+<body>
+<div class="shell">
+    <header class="top">
+      <div class="brand"><span class="logo" aria-hidden="true"><img src="./icons/frumos.svg" alt=""></span><span>Kol Room</span><span class="brand-sub">Drummer Edition</span></div>
+      <div class="top-actions"><label class="hidden" for="projectSelect">Proyecto activo</label><select id="projectSelect" class="project-select" aria-label="Proyecto activo"></select><button id="newProjectBtn" class="btn primary" type="button">＋ Proyecto</button><button id="toolsToggle" class="btn" type="button" aria-expanded="false" aria-controls="projectTools">Gestionar</button></div>
+    </header>
+
+    <nav class="main-nav" role="tablist" aria-label="Secciones principales">
+      <button class="nav-tab active" id="navRepertoire" role="tab" aria-selected="true" aria-controls="repertoireView" data-view="repertoire">Repertorio</button>
+      <button class="nav-tab" id="navMetronome" role="tab" aria-selected="false" aria-controls="metronomeView" data-view="metronome">Metrónomo</button>
+      <button class="nav-tab" id="navSettings" role="tab" aria-selected="false" aria-controls="settingsView" data-view="settings">Ajustes</button>
+    </nav>
+
+
+<details id="projectTools" class="project-tools">
+  <summary>Gestionar proyectos</summary>
+  <div class="tools-content">
+    <div id="projectList" class="project-list"></div>
+    <div class="project-settings"><div class="actions">
+      <button id="saveProjectBtn" class="btn primary">Guardar proyecto</button>
+      <button id="renameProjectBtn" class="btn">Renombrar</button>
+      <button id="exportProjectBtn" class="btn">Exportar repertorio (.pulso)</button>
+      <button id="importProjectBtn" class="btn">Importar repertorio</button>
+      <button id="deleteProjectBtn" class="btn danger">Eliminar proyecto</button>
+    </div><label class="field">Fondo del proyecto<input id="bgColor" type="color"></label></div>
+    <small class="help">El archivo .pulso guarda los datos y el orden. Puedes exportar cada audio desde su canción.</small>
+  </div>
+</details>
+<main>
+<p id="appError" class="ui-error" role="alert" hidden></p>
+<section id="repertoireView" class="view" role="tabpanel" aria-labelledby="navRepertoire">
+  <div id="libraryPanel">
+    <header class="library-hero">
+      <div class="eyebrow">Repertorio</div><h1 id="projectCaption">Mi primer proyecto</h1>
+      <div id="libraryStats" class="project-caption"></div>
+      <div class="actions"><button id="playSet" class="btn primary" disabled>▶ Reproducir repertorio</button>
+        <button id="importTracks" class="btn">↑ Importar audio</button></div>
+    </header>
+    <section class="card library-list" aria-labelledby="libraryTitle">
+      <div class="library-head"><h2 id="libraryTitle">Canciones</h2><div class="actions">
+        <input id="songFinder" class="search" type="search" aria-label="Buscar por título o artista" placeholder="Buscar título o artista…">
+        <button id="addSongBtn" class="btn">＋ Añadir canción</button></div></div>
+      <form id="newSongForm" class="song-form" hidden><input id="newSongTitle" maxlength="140" placeholder="Título" aria-label="Título de la nueva canción" required>
+        <input id="newSongArtist" maxlength="140" placeholder="Artista (opcional)" aria-label="Artista de la nueva canción">
+        <button class="btn primary" type="submit">Añadir</button><button id="cancelSongBtn" class="btn" type="button">Cancelar</button></form>
+      <div id="songList" class="song-list"></div>
+    </section>
+    <div id="importState" class="editor-actions" hidden><span id="importStatus" role="status"></span><button id="cancelImport" class="btn">Cancelar importación</button></div>
+    <section id="songEditor" class="song-editor" aria-label="Editar canción" hidden>
+      <div class="editor-header"><h2 id="editorHeading" tabindex="-1">Editar canción</h2><button id="closeEditor" class="btn">Cerrar editor</button></div>
+      <fieldset><legend>Datos de la canción</legend><div class="fields">
+        <label>Título<input id="songTitleInput" maxlength="140" required></label><label>Artista<input id="songArtistInput" maxlength="140"></label>
+        <label>BPM definitivo<input id="songBpm" type="number" min="20" max="300" step="0.01"></label>
+        <label>Nota<select id="songRoot"></select></label><label>Modo<select id="songMode"><option value="mayor">Mayor</option><option value="menor">Menor</option></select></label>
+      </div></fieldset>
+      <fieldset><legend>Archivo musical</legend><p id="audioFacts" class="file-status"></p>
+        <div class="editor-actions"><button id="replaceAudio" class="btn">Importar audio</button><button id="exportAudio" class="btn">Exportar audio original</button>
+        <button id="exportConverted" class="btn">Exportar WAV convertido</button><button id="removeAudio" class="btn danger">Quitar audio</button></div>
+        <p id="analysisFacts" class="file-status"></p><div class="editor-actions"><button id="reanalyze" class="btn">Volver a analizar</button><button id="acceptBpm" class="btn">Aceptar BPM</button><button id="useSongTempo" class="btn">Usar este tempo en el metrónomo</button><button id="acceptKey" class="btn">Aceptar tonalidad</button></div>
+      </fieldset>
+      <fieldset><legend>Portada</legend><div class="editor-actions"><img id="editorCover" class="track-cover" alt="Portada actual">
+        <button id="chooseCover" class="btn">Cambiar portada</button><button id="restoreCover" class="btn">Restaurar portada original</button></div></fieldset>
+      <fieldset><legend>Durante el repertorio</legend><div class="fields">
+        <label>Descanso posterior<select id="restKind"><option value="inherit">Usar ajuste general</option><option value="none">Sin descanso</option><option value="custom">Segundos personalizados</option></select></label>
+        <label id="restSecondsLabel">Segundos<input id="restOverride" type="number" min="0" max="3600" step="1"></label>
+        <label>Preparación<select id="readyMode"><option value="inherit">Usar ajuste general</option><option value="true">Esperar confirmación</option><option value="false">Automática</option></select></label>
+        <label>Metrónomo<select id="songClick"><option value="inherit">Usar ajuste general</option><option value="true">Activado</option><option value="false">Desactivado</option></select></label>
+      </div></fieldset>
+      <div class="editor-actions"><button id="moveUp" class="btn">↑ Subir posición</button><button id="moveDown" class="btn">↓ Bajar posición</button><button id="removeSongBtn" class="btn danger">Eliminar canción</button></div>
+    </section>
+  </div>
+  <div id="playerPanel" hidden></div>
+</section>
+      <section id="metronomeView" class="view" role="tabpanel" aria-labelledby="navMetronome" hidden>
+        <div class="title-row"><div><div class="eyebrow">ESTUDIO PERSONAL / PULSO</div><h1>Metrónomo</h1><div class="project-caption">Tempo asociado al proyecto activo</div></div></div>
+        <div class="metro-layout">
+          <div class="metro-main">
+            <section class="card"><div class="card-label">Tempo</div><div class="bpm-control"><input id="bpm" type="number" min="20" max="300" step="0.01" value="120" aria-label="Tempo en pulsos por minuto"><span>BPM</span></div><div id="metroBeats" class="metro-beats" aria-hidden="true"><span></span><span></span><span></span><span></span></div><div class="bpm-foot"><button id="minus" class="smallbtn" type="button" aria-label="Bajar un BPM">−</button><button id="plus" class="smallbtn" type="button" aria-label="Subir un BPM">＋</button><span id="metroTempoLabel" class="dim">120 BPM</span></div></section>
+            <div class="metro-actions"><button id="metroBtn" class="btn primary" type="button" aria-pressed="false">▶ Iniciar metrónomo</button><button id="tapBig" class="tapbtn" type="button">Toca aquí al ritmo del tema</button><div id="tapStatus" class="status" aria-live="polite">Pulsa varias veces para calcular el BPM</div></div>
+          </div>
+          
+        </div>
+      </section>
+
+<section id="settingsView" class="view" role="tabpanel" aria-labelledby="navSettings" hidden><div class="title-row"><div><div class="eyebrow">Kol Room</div><h1>Ajustes</h1></div></div><div id="settingsPanel"></div></section>
+</main>
+</div>
+<dialog class="modal-bg" id="modal" aria-labelledby="modalTitle"><form method="dialog" class="modal"><h2 id="modalTitle">Proyecto</h2>
+<input id="modalInput" maxlength="80" aria-label="Nombre del proyecto" required><div class="modal-actions"><button id="modalCancel" class="btn" type="button">Cancelar</button><button class="btn primary">Guardar</button></div></form></dialog>
+<input type="file" id="audioInput" accept="audio/*,.m4a,.aac,.opus,.webm,.flac,.wma,.aiff,.aif" multiple hidden>
+<input type="file" id="coverInput" accept="image/*" hidden><input type="file" id="importFile" accept=".pulso,.json" hidden>
+<div id="toast" class="toast" role="status" aria-live="polite"></div>
+<script type="module" src="./app.js"></script>
+</body></html>

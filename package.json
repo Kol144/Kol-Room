@@ -1,0 +1,34 @@
+{
+  "name": "kol-room",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Kol Room · reproductor de repertorios y práctica de batería",
+  "type": "module",
+  "scripts": {
+    "predev": "node prepare-voice.mjs",
+    "prebuild": "node prepare-voice.mjs",
+    "dev": "vite --host 0.0.0.0",
+    "build": "vite build",
+    "preview": "vite preview --host 0.0.0.0",
+    "test": "node --test library.test.js playback.test.js",
+    "cap:sync": "npm run build && cap sync",
+    "android:build": "npm run build && cap sync android && cd android && gradlew.bat assembleDebug"
+  },
+  "dependencies": {
+    "@capacitor/android": "^8.0.0",
+    "@capacitor/core": "^8.0.0",
+    "@capacitor/ios": "^8.0.0",
+    "@diffusionstudio/piper-wasm": "1.0.0",
+    "music-metadata": "^12.7.0",
+    "onnxruntime-web": "1.18.0"
+  },
+  "devDependencies": {
+    "@capacitor/assets": "^4.0.0",
+    "@capacitor/cli": "^8.0.0",
+    "fake-indexeddb": "^6.2.8",
+    "vite": "^7.0.0"
+  },
+  "allowScripts": {
+    "esbuild@0.28.2": true
+  }
+}

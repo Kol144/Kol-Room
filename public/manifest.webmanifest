@@ -1,0 +1,17 @@
+{
+  "name": "Kol Room",
+  "short_name": "Kol Room",
+  "description": "Repertorios y práctica de batería con archivos locales",
+  "start_url": "./",
+  "display": "standalone",
+  "background_color": "#101010",
+  "theme_color": "#101010",
+  "icons": [
+    {
+      "src": "icons/frumos-space.png",
+      "sizes": "1024x1024",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}

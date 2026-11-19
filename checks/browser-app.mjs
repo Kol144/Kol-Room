@@ -1,0 +1,87 @@
+import assert from 'node:assert/strict';
+import {createRequire} from 'node:module';
+import {tmpdir} from 'node:os';
+import {join} from 'node:path';
+import {fileURLToPath} from 'node:url';
+const {chromium}=createRequire(import.meta.url)(process.env.PLAYWRIGHT_MODULE||'playwright');
+const base=process.env.FRUMOS_URL||'http://127.0.0.1:4173/';
+const browser=await chromium.launch({executablePath:process.env.CHROMIUM_EXECUTABLE,headless:true});
+function wave() {
+  const rate=16000,samples=2*rate,data=Buffer.alloc(44+samples*2);
+  data.write('RIFF');data.writeUInt32LE(data.length-8,4);data.write('WAVEfmt ',8);
+  data.writeUInt32LE(16,16);data.writeUInt16LE(1,20);data.writeUInt16LE(1,22);
+  data.writeUInt32LE(rate,24);data.writeUInt32LE(2*rate,28);data.writeUInt16LE(2,32);
+  data.writeUInt16LE(16,34);data.write('data',36);data.writeUInt32LE(samples*2,40);
+  for(let i=0;i<samples;i++)data.writeInt16LE(Math.round(5000*Math.sin(2*Math.PI*120*i/rate)*Math.exp(-60*((i/rate)%.5))),44+2*i);
+  return data;
+}
+try {
+  const ctx=await browser.newContext({viewport:{width:1120,height:860},acceptDownloads:true});
+  const page=await ctx.newPage(),errors=[];
+  page.on('pageerror',e=>{errors.push(e.message);console.error(e.message);});
+  const el=s=>page.locator(s), click=s=>el(s).click();
+  async function has(selector,text) {
+    try {await page.waitForFunction(([s,t])=>document.querySelector(s)?.textContent.includes(t),[selector,text]);}
+    catch(error){console.error('Esperando',selector,text,page.url(),(await page.locator('body').innerText()).slice(0,950));throw error;}
+  }
+  page.on('requestfailed', r=>console.error('Recurso',r.url(),r.failure()?.errorText));
+  await page.goto(base);await el('#projectSelect option').first().waitFor({state:'attached'});
+  await click('#newProjectBtn');await el('#modalInput').fill('Ensayo de prueba');await el('#modalInput').press('Enter');
+  await has('#projectCaption','Ensayo de prueba');
+  await page.screenshot({path:join(tmpdir(),'frumos-desktop.png')});
+  await click('#importTracks');
+  await el('#audioInput').setInputFiles(['Pulso uno','Pulso dos','Pulso tres'].map(s=>({name:s+'.wav',mimeType:'audio/wav',buffer:wave()})));
+  await page.waitForFunction(()=>document.querySelectorAll('.song-row').length===3,null,{timeout:90000});
+  await click('#addSongBtn');await el('#newSongTitle').fill('Guion sin audio');await el('#newSongTitle').press('Enter');
+  await has('#editorHeading','Guion sin audio');
+  await el('.track-title').first().click();
+  await el('#songArtistInput').fill('Mi banda');await el('#songArtistInput').press('Tab');
+  await el('#songBpm').fill('144');await el('#songBpm').press('Tab');
+  await el('#songRoot').selectOption('Re');await el('#songMode').selectOption('menor');
+  await click('#reanalyze');await el('#importState').waitFor({state:'hidden'});
+  await has('.song-row','144 BPM');
+  await click('#chooseCover');await el('#coverInput').setInputFiles(fileURLToPath(new URL('../public/icons/drum-cover.webp',import.meta.url)));
+  await page.waitForFunction(()=>document.querySelector('#editorCover').src.startsWith('blob:'));
+  const downloaded=page.waitForEvent('download');await click('#exportAudio');assert.equal((await downloaded).suggestedFilename(),'Pulso uno.wav');
+  await click('#moveDown');await has('.song-row','Pulso dos');
+  await click('#navSettings');await el('[data-setting=announcements]').uncheck();
+  await el('[data-setting=restSeconds]').fill('3');await el('[data-setting=restSeconds]').press('Tab');
+  await el('#settingsPanel summary').filter({hasText:/^Metrónomo$/}).click();await el('[data-setting=countIn]').uncheck();
+  await click('#navRepertoire');await el('#songFinder').fill('Mi banda');
+  assert.equal(await el('.song-row').count(),1);await el('#songFinder').fill('');
+  await el('#projectSelect').selectOption({label:'Mi primer proyecto'});await has('#songList','vacío');
+  await el('#projectSelect').selectOption({label:'Ensayo de prueba'});
+  await page.waitForFunction(()=>!!navigator.serviceWorker.controller);
+  await ctx.setOffline(true);await page.reload();await has('#libraryStats','3 con audio');
+  await el('.track-title').nth(1).click();await has('#analysisFacts','BPM manual');
+  assert.equal(await el('#songBpm').inputValue(),'144');assert.equal(await el('#songMode').inputValue(),'menor');
+  await page.waitForFunction(()=>document.querySelector('#editorCover').src.startsWith('blob:'));
+  await click('#playSet');await has('[data-part=phase]','Reproduciendo ahora');
+  assert.equal(await el('[data-part=queue] li').count(),3);
+  await click('[data-action=live]');await click('[data-action=live]');
+  await has('[data-part=phase]','Descanso');
+  await click('[data-action=main]');await has('[data-part=phase]','Descanso pausado');
+  await click('[data-action=addRest]');await click('[data-action=skipRest]');
+  await has('[data-part=title]','Pulso uno');await has('[data-part=phase]','Repertorio finalizado');
+  await has('[data-part=artist]','3 canciones');
+  await click('[data-action=back]');await page.setViewportSize({width:390,height:844});
+  await page.screenshot({path:join(tmpdir(),'frumos-mobile.png'),fullPage:true});
+  assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth),'horizontal overflow');
+  await el('.row-play').first().click();await has('[data-part=phase]','Reproduciendo ahora');
+  await click('[data-action=main]');await has('[data-part=phase]','En pausa');
+  await page.screenshot({path:join(tmpdir(),'frumos-player.png'),fullPage:true});
+  assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth),'player horizontal overflow');
+  await el('summary').filter({hasText:'Práctica · velocidad'}).click();
+  await el('[data-field=speed]').press('Home');
+  for(let i=0;i<5;i++) await el('[data-field=speed]').press('ArrowRight');
+  await click('[data-action=preview]');
+  await has('[data-part=phase]','Comparación de velocidad');await has('[data-part=phase]','En pausa');
+  await click('[data-action=applySpeed]');
+  await el('[data-field=a]').fill('0.25');await el('[data-field=b]').fill('1.25');await el('[data-field=b]').press('Tab');
+  await el('[data-field=regionName]').fill('Intro');await click('[data-action=saveRegion]');
+  await el('[data-field=repeats]').fill('2');await click('[data-action=loop]');
+  await has('[data-part=phase]','Práctica A–B');await has('[data-part=phase]','Reproducción finalizada');
+  await click('[data-action=back]');
+  await click('#navMetronome');await click('#metroBtn');await page.waitForFunction(()=>document.querySelector('#metroBtn').getAttribute('aria-pressed')==='true');await click('#metroBtn');
+  assert.deepEqual(errors,[]);console.log('Proyecto, tres WAV, edición, portada, exportación, búsqueda, cambio de proyecto, recarga offline, orden, descanso, directo, metrónomo y móvil verificados.');
+} finally { await browser.close(); }
