@@ -15,7 +15,7 @@ export function durationText(value) {
 export function fileSize(bytes) {
   return bytes >= 1048576 ? (bytes/1048576).toFixed(1)+' MB' : Math.ceil(bytes/1024)+' KB';
 }
-export function mountEditor({selected,patch,move,remove,close,importAudio,removeAudio,exportAudio,chooseCover,restoreCover,showCover,reanalyze,setMetroTempo}) {
+export function mountEditor({selected,patch,move,remove,close,importAudio,removeAudio,exportAudio,chooseCover,restoreCover,showCover,reanalyze,setMetroTempo,searchTempo}) {
   const el = byId;
   const options = el('songRoot');
   options.add(new Option('Sin definir',''));
@@ -24,19 +24,22 @@ export function mountEditor({selected,patch,move,remove,close,importAudio,remove
   const buttons = {closeEditor:close,moveUp:()=>move(-1),moveDown:()=>move(1),removeSongBtn:remove,replaceAudio:importAudio,removeAudio,exportAudio:()=>exportAudio(false),exportConverted:()=>exportAudio(true),chooseCover,restoreCover,reanalyze};
   for (const [id,callback] of Object.entries(buttons)) el(id).onclick=callback;
   el('useSongTempo').onclick=setMetroTempo;
+  el('searchOnlineBpm').onclick=searchTempo;
   el('songTitleInput').onchange = event => {const title=event.target.value.trim(); if(title) update({title}); else event.target.value=selected().title;};
   el('songArtistInput').onchange = event => update({artist:event.target.value.trim()});
   el('songPronunciation').onchange=event=>update({pronunciation:event.target.value.trim()});
   el('songSpeechLanguage').onchange=event=>update({speechLanguage:event.target.value});
-  el('acceptOnlineBpm').onclick=()=>{const song=selected();if(song.onlineBpm)update({bpm:song.onlineBpm,bpmSource:'manual'});};
+  el('acceptOnlineBpm').onclick=()=>{const song=selected();if(song.onlineBpm)update({bpm:song.onlineBpm,bpmSource:'online',preferLocalTempo:false});};
   el('songBpm').onchange = event => {
     const input=event.target;
-    if (!input.value || !input.checkValidity()) {input.reportValidity();input.value=selected().bpm;return;}
-    update({bpm:Number(input.value),bpmSource:'manual'});
+    const bpm=input.valueAsNumber;
+    if (!(bpm >= 20 && bpm <= 300)) {input.reportValidity();input.value=selected().bpm;return;}
+    input.value=String(Math.round(bpm));
+    update({bpm:Math.round(bpm),bpmSource:'manual'});
   };
   const saveKey = () => {const root=options.value; update({key:root ? root+' '+el('songMode').value : '',keySource:'manual'});};
   options.onchange=saveKey; el('songMode').onchange=saveKey;
-  el('acceptBpm').onclick=()=>{const s=selected(); if(s.detectedBpm) update({bpm:s.detectedBpm,bpmSource:'detected',
+  el('acceptBpm').onclick=()=>{const s=selected(); if(s.detectedBpm) update({bpm:s.detectedBpm,bpmSource:'detected',preferLocalTempo:true,
     ...(s.beatOffsetSource!=='manual' && s.detectedBeatOffset!=null ? {beatOffset:s.detectedBeatOffset,beatOffsetSource:'detected'} : {})});};
   el('acceptKey').onclick=()=>{const s=selected(); if(s.detectedKey) update({key:s.detectedKey,keySource:'detected'});};
   el('restKind').onchange=event=>{
@@ -52,7 +55,7 @@ export function mountEditor({selected,patch,move,remove,close,importAudio,remove
     el(id).onchange=event=>update({[key]:event.target.value==='inherit' ? null : event.target.value==='true'});
   }
   let renderedId;
-  return (song,index,total,busy)=>{
+  return (song,index,total,busy,tempoState)=>{
     el('songEditor').hidden=!song;
     if(!song){renderedId=null;return;}
     const same=renderedId===song.id;
@@ -61,8 +64,15 @@ export function mountEditor({selected,patch,move,remove,close,importAudio,remove
     el('editorHeading').textContent='Editar · '+song.title;
     set('songTitleInput',song.title);set('songArtistInput',song.artist);set('songBpm',song.bpm);
     set('songPronunciation',song.pronunciation || '');set('songSpeechLanguage',song.speechLanguage || '');
-    el('acceptOnlineBpm').hidden=!song.onlineBpm;
-    el('acceptOnlineBpm').textContent='Usar BPM de internet · '+(song.onlineBpm || '')+' BPM';
+    const usingOnline = song.bpmSource === 'online' && song.bpm === song.onlineBpm;
+    el('acceptOnlineBpm').hidden=!song.onlineBpm || usingOnline;
+    el('acceptOnlineBpm').textContent='Usar '+(song.onlineBpm || '')+' BPM';
+    el('searchOnlineBpm').disabled=tempoState==='searching' || tempoState==='offline';
+    const messages={searching:'Buscando el tempo…',offline:'Sin conexión.',missing:'No se encontró un tempo para esta grabación. Comprueba el título y el artista.',error:'El catálogo no ha respondido. Puedes volver a buscar.'};
+    const result = song.onlineBpm ? (song.onlineBpmSource || 'AcousticBrainz')+' · '+song.onlineBpm+' BPM'+(usingOnline?' · Aplicado al metrónomo':'') : '';
+    const status = el('onlineBpmStatus');
+    status.textContent=[result,messages[tempoState]].filter(Boolean).join(' · ');
+    status.hidden=!status.textContent;
     const key=parseKey(song.key);
     set('songRoot',key.note);set('songMode',key.mode);el('songMode').disabled=!key.note;
     set('restKind',song.restOverride==null?'inherit':song.restOverride===0?'none':'custom');
@@ -73,13 +83,12 @@ export function mountEditor({selected,patch,move,remove,close,importAudio,remove
     const analysis=[song.analysisStatus || 'Pendiente de análisis'];
     if (audio) {
       if(song.detectedBpm){analysis.push('Tempo estimado '+song.detectedBpm+' BPM');if(song.bpmConfidence) analysis.push('confianza rítmica '+Math.round(song.bpmConfidence*100)+' %');}
-      if(song.beatOffsetSource==='detected') analysis.push('Clic alineado con los golpes');
+      if(song.soundOnset!=null) analysis.push('Primer sonido a los '+song.soundOnset.toLocaleString('es-ES',{maximumFractionDigits:2})+' s');
       if(song.bpmAlternatives?.length) analysis.push('Tempos alternativos '+song.bpmAlternatives.join(' / '));
       analysis.push(song.detectedKey || 'Tonalidad no determinada');
       if(song.keyConfidence && song.detectedKey) analysis.push('confianza tonal '+Math.round(song.keyConfidence*100)+' %');
     }
     if(song.bpmSource==='manual') analysis.push('BPM manual');
-    if(song.onlineBpm) analysis.push('Tempo de internet '+song.onlineBpm+' BPM · AcousticBrainz');
     if(song.keySource==='manual') analysis.push('Tonalidad manual');
     el('analysisFacts').textContent=analysis.join(' · ');
     for(const id of ['exportAudio','removeAudio','reanalyze'])el(id).hidden=!audio;

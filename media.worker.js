@@ -6,6 +6,7 @@ async function readTags(file) {
   const picture = selectCover(data.common.picture);
   return { title: data.common.title || '', artist: data.common.artist || '', format: data.format.container || '',
     album: data.common.album || '', release: data.common.musicbrainz_albumid || '',
+    recording: data.common.musicbrainz_recordingid || '', isrc: data.common.isrc?.[0] || '',
     duration: data.format.duration || 0, channels: data.format.numberOfChannels || 0,
     cover: picture ? new Blob([picture.data], { type: picture.format }) : null };
 }

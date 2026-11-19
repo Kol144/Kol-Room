@@ -1,4 +1,4 @@
-import { cleanProject, cleanSong, applyAnalysis } from './project-data.js';
+import { cleanProject, cleanSong, applyAnalysis, applyOnlineTempo, clearOnlineTempo } from './project-data.js';
 import * as library from './storage.js';
 import { PlaybackEngine } from './playback.js';
 import { mountPlayer } from './player-ui.js';
@@ -20,29 +20,41 @@ const coverURLs = new Map();
 const current = () => projects.find(project => project.id === currentId);
 const selected = () => current()?.repertoire.find(song => song.id === selectedSongId);
 const attemptedArt = new Set();
-const attemptedTempo = new Set();
-let tempoBusy=false;
+const tempoStates = new Map();
+const tempoKey = (projectId,song) => JSON.stringify([projectId,song.id,song.audioId,song.title,song.artist]);
+let tempoRequests = 0, nextTempoTimer;
+async function lookupTempo(project, song, manual = false) {
+  const key = tempoKey(project.id,song);
+  if (navigator.onLine === false || tempoStates.get(key) === 'searching') return;
+  tempoStates.set(key,'searching');
+  tempoRequests++;
+  refreshEditor();
+  try {
+    const {findOnlineTempo} = await import('./online-tempo.js');
+    const result = await findOnlineTempo(song);
+    if (!manual && !settings.onlineTempo) { tempoStates.delete(key); return; }
+    if (!result) { tempoStates.set(key,'missing'); return; }
+    const saved = await editProject(project.id, p => {
+      const item = p.repertoire.find(s => s.id === song.id);
+      if (item && tempoKey(p.id,item) === key) applyOnlineTempo(item,result);
+    });
+    const updated = saved.repertoire.find(s => s.id === song.id);
+    if (currentId === saved.id && updated && tempoKey(saved.id,updated) === key) engine.updateSong(updated);
+    tempoStates.set(key,'found');
+  } catch { tempoStates.set(key,'error'); }
+  finally {
+    tempoRequests--;
+    refreshEditor();
+    clearTimeout(nextTempoTimer);
+    nextTempoTimer = setTimeout(() => { nextTempoTimer = null; scheduleTempo(); },1100);
+  }
+}
 function scheduleTempo() {
-  if (tempoBusy || artBusy || !settings.onlineTempo || navigator.onLine===false) return;
-  const project=current();
-  const key=s=>JSON.stringify([project.id,s.id,s.audioId,s.title,s.artist]);
-  const song=project?.repertoire.find(s=>s.audioId && !attemptedTempo.has(key(s)));
-  if (!song) return;
-  attemptedTempo.add(key(song));tempoBusy=true;
-  const expected={...song};
-  setTimeout(async()=>{
-    try {
-      const {findOnlineTempo}=await import('./online-tempo.js');
-      const result=await findOnlineTempo(expected);
-      if (result && settings.onlineTempo) await editProject(project.id,p=>{
-        const item=p.repertoire.find(s=>s.id===song.id);
-        if (item?.audioId===expected.audioId && item.title===expected.title && item.artist===expected.artist) {
-          item.onlineBpm=result.bpm;item.onlineBpmURL=result.url;
-        }
-      });
-    } catch { /* Local analysis remains available when the catalogue cannot answer. */ }
-    finally {tempoBusy=false;scheduleTempo();}
-  },1200);
+  const project = current();
+  if (!project || tempoRequests || nextTempoTimer || !settings.onlineTempo || navigator.onLine === false) return;
+  const pendingSong = s => s?.audioId && !s.onlineBpmSource && !tempoStates.has(tempoKey(project.id,s));
+  const song = pendingSong(selected()) ? selected() : project.repertoire.find(pendingSong);
+  if (song) lookupTempo(project,song);
 }
 let artBusy = false;
 function scheduleArtwork() {
@@ -61,9 +73,14 @@ function scheduleArtwork() {
     const {prepareCover} = await import('./media.js');
     const cover = await prepareCover(image);
     if (settings.onlineArtwork) await applyAsset(project.id,song.id,()=>library.attachOnlineCover(db,project.id,expected,cover));
-  })().catch(()=>{}).finally(()=>setTimeout(()=>{artBusy=false; scheduleArtwork();scheduleTempo();},1100));
+  })().catch(()=>{}).finally(()=>setTimeout(()=>{artBusy=false; scheduleArtwork();},1100));
 }
-window.addEventListener('online',()=>{attemptedArt.clear();attemptedTempo.clear();scheduleArtwork();scheduleTempo();});
+window.addEventListener('online',()=>{
+  attemptedArt.clear();
+  for (const [key,state] of tempoStates) if (state === 'error' || state === 'missing') tempoStates.delete(key);
+  refreshEditor();scheduleArtwork();scheduleTempo();
+});
+window.addEventListener('offline',refreshEditor);
 const readPreference = key => {try{return localStorage.getItem(key);}catch{return null;}};
 
 function queueWrite(action) {
@@ -105,6 +122,10 @@ async function saveSong(songId,patch) {
   const project=await editProject(id,project=>{
     const song=project.repertoire.find(item=>item.id===songId);
     if(!song) throw Error('La canción ya no está en este proyecto.');
+    if (['title','artist'].some(key => key in patch && patch[key] !== song[key])) {
+      clearOnlineTempo(song,project.bpm);
+      song.tagRecording = song.tagIsrc = '';
+    }
     if ('beatOffset' in patch && !patch.beatOffsetSource) song.beatOffsetSource='manual';
     if ('bpm' in patch) patch.bpm=Math.round(patch.bpm);
     Object.assign(song,patch,{updatedAt:Date.now()});
@@ -145,7 +166,7 @@ function saveSettings(patch) {
   localStorage.setItem(settingsKey,JSON.stringify(value));
   settings=value;
   if (patch.onlineArtwork) {attemptedArt.clear(); scheduleArtwork();}
-  if (patch.onlineTempo) {attemptedTempo.clear();scheduleTempo();}
+  if (patch.onlineTempo) scheduleTempo();
   applyPalette(value.palette);
   return settings;
 }
@@ -248,6 +269,13 @@ function renderRows(project) {
   }
   list.replaceChildren(fragment);
 }
+function refreshEditor() {
+  const project = current();
+  if (!project || !renderEditor) return;
+  const song = editorOpen ? selected() : null;
+  const status = navigator.onLine === false ? 'offline' : song && tempoStates.get(tempoKey(project.id,song));
+  renderEditor(song,project.repertoire.indexOf(song),project.repertoire.length,Boolean(importJob),status);
+}
 function refreshLibrary() {
   const project=current();if(!project)return;
   releaseUnusedCovers();
@@ -257,8 +285,7 @@ function refreshLibrary() {
   $('playSet').disabled=!available.length || !!importJob;
   $('importTracks').disabled=!!importJob;
   renderRows(project);
-  const song=editorOpen ? selected() : null;
-  renderEditor(song,songs.indexOf(song),songs.length,Boolean(importJob));
+  refreshEditor();
   scheduleArtwork();
   scheduleTempo();
 }
@@ -397,6 +424,7 @@ async function analyzeSelected(){
 function bindEditor(){
   const target=()=>({projectId:currentId,songId:selected().id});
   renderEditor=mountEditor({selected,showCover,patch:guard(saveSong),move:guard(step=>moveSong(selectedSongId,step)),
+    searchTempo:guard(() => lookupTempo(current(),selected(),true)),
     setMetroTempo:guard(async()=>{const bpm=selected().bpm;$('bpm').value=bpm;await saveTempo();toast('Metrónomo del proyecto a '+bpm+' BPM');}),
     close:()=>{editorOpen=false;refreshLibrary();},
     remove:guard(async()=>{

@@ -1,4 +1,4 @@
-import { applyAnalysis, cleanProject, cleanSong } from './project-data.js';
+import { applyAnalysis, clearOnlineTempo, cleanProject, cleanSong } from './project-data.js';
 
 export const DB_NAME = 'pulso_sampler_v1';
 export const DB_VERSION = 2;
@@ -137,10 +137,16 @@ export function attachAudio(db, projectId, songId, prepared, { newSong } = {}) {
     tx.objectStore('audioFiles').add({ id, original: prepared.original, playable: prepared.playable || null });
     if (embeddedId) tx.objectStore('coverImages').add({ id: embeddedId, blob: prepared.cover });
     if (!song.coverId || song.coverId === song.embeddedCoverId || song.coverId === song.onlineCoverId) song.coverId = embeddedId;
-    if (!relinking) { song.beatOffset = 0; song.beatOffsetSource = 'default'; }
+    if (!relinking) {
+      clearOnlineTempo(song, project.bpm);
+      song.preferLocalTempo = false;
+      song.beatOffset = 0;
+      song.beatOffsetSource = 'default';
+    }
     Object.assign(song, applyAnalysis(song, prepared.analysis, project.bpm), {
       audioId: id, embeddedCoverId: embeddedId, onlineCoverId: null, duration: prepared.duration,
       tagAlbum: prepared.tagAlbum || '', tagRelease: prepared.tagRelease || '',
+      tagRecording: prepared.tagRecording || '', tagIsrc: prepared.tagIsrc || '',
       audioName: prepared.name, audioType: prepared.type, audioSize: prepared.original.size,
       converted: Boolean(prepared.playable), compatibility: 'Reproducible en este dispositivo',
       loopRegions: relinking ? song.loopRegions : [],
@@ -170,8 +176,10 @@ export function restoreCover(db, projectId, songId) {
 export function removeAudio(db, projectId, songId) {
   return editSong(db, projectId, songId, [], (song, project) => {
     if (song.coverId === song.embeddedCoverId || song.coverId === song.onlineCoverId) song.coverId = null;
+    clearOnlineTempo(song, project.bpm);
     Object.assign(song, applyAnalysis(song, { analysisStatus: 'Pendiente' }, project.bpm), {
       audioId: null, audioName: '', audioSize: 0, audioType: '', duration: 0, converted: false,
+      tagRecording: '', tagIsrc: '', preferLocalTempo: false,
       embeddedCoverId: null, onlineCoverId: null, tagRelease:'', tagAlbum:'', compatibility: '', loopRegions: [], beatOffset: 0, beatOffsetSource:'default',
     });
   });
