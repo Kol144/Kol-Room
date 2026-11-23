@@ -250,7 +250,7 @@ export class PlaybackEngine {
     // untouched recording. A practice loop keeps its own start position.
     let entry = this.loop ? this.loop.a : onset;
     if (!this.loop && onset != null && this.song.beatOffsetSource !== 'default' && this.song.beatOffset > onset && this.song.beatOffset < this.duration) entry = this.song.beatOffset;
-    const lead = !this.loop && onset != null && entry === onset ? Math.min(.14, period * .45, onset / rate) : 0;
+    const lead = this.loop ? 0 : period * 4;
     this.countAnchor = entry;
     if (entry != null) {
       const from = Math.max(0, entry - lead * rate);
@@ -265,18 +265,19 @@ export class PlaybackEngine {
       for (let i = 0; i < 4; i++) this.output.click(first + period * i, i, pulse);
     } catch (err) { return this.fail(err); }
     const downbeat = first + 4 * period;
-    const launch = downbeat - lead;
     const enter = () => {
-      if (!this.allowed(signal) || this.state !== 'countIn' || this.output.time + .001 < launch) return;
+      if (!this.allowed(signal) || this.state !== 'countIn' || this.output.time + .001 < downbeat) return;
       if (this.output.time - downbeat > .3) return this.pause();
-      this.playTrack();
+      this.setState(this.mode === 'practice' ? 'practice' : 'playing');
+      this.startClock(() => this.musicTick());
     };
     this.startClock(enter);
-    if (this.timing === clock) this.entryTimer = setTimeout(enter, Math.max(0,(launch-this.output.time)*1000));
+    if (this.timing === clock) this.entryTimer = setTimeout(enter, Math.max(0,(downbeat-this.output.time)*1000));
+    this.playTrack({duringCount:true});
   }
-  async playTrack() {
+  async playTrack({duringCount=false}={}) {
     if (!this.track) return this.select(this.index);
-    const signal = this.cancelTask();
+    const signal = duringCount ? this.task.signal : this.cancelTask();
     const audio = this.track.audio;
     this.applyTrack();
     this.lastBeat = null;
@@ -288,16 +289,19 @@ export class PlaybackEngine {
     listen('waiting', () => { this.buffering = true; this.resetGrid(); });
     listen('seeking', () => { this.buffering = true; this.resetPosition(audio.currentTime); this.resetGrid(); });
     for (const event of ['playing', 'seeked']) listen(event, () => {
-      this.buffering = audio.seeking || audio.readyState < 3; this.resetGrid();
+      this.buffering = audio.seeking || audio.readyState < 3;
+      if (!(duringCount && event === 'playing')) this.resetGrid();
     });
     listen('pause', () => {
       if (audio.paused && !audio.ended && !audio.seeking && activeMusic(this.state)) this.pause();
     });
-    this.setState(this.mode === 'practice' ? 'practice' : 'playing');
-    this.startClock(() => this.musicTick());
+    if (!duringCount) {
+      this.setState(this.mode === 'practice' ? 'practice' : 'playing');
+      this.startClock(() => this.musicTick());
+    }
     try {
       await audio.play();
-      if (this.allowed(signal)) this.musicTick();
+      if (this.allowed(signal) && !duringCount) this.musicTick();
     } catch (err) {
       if (!signal.aborted) this.fail(new Error('No se pudo iniciar la música. Pulsa Reintentar. ' + (err.message || '')));
     }

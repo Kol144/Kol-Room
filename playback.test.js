@@ -84,7 +84,7 @@ test('la pausa tras la voz espera el tiempo configurado y se puede congelar o de
   }
 });
 
-test('tres pistas en orden, anuncio real antes de cuatro clics y música en el quinto pulso', async () => {
+test('tres pistas en orden, anuncio real antes de cuatro clics y música durante la cuenta', async () => {
   const r = rig({restSeconds: 0});
   const songs = [song('A'),song('sin audio',{audioId:null}),song('B'),song('C')];
   await r.engine.start(songs);
@@ -100,9 +100,11 @@ test('tres pistas en orden, anuncio real antes de cuatro clics y música en el q
     r.speech[i].resolve(); await drain();
     const group = r.clicks.slice(before);
     assert.deepEqual(group.map(x => x.beat), [0,1,2,3]);
+    assert.equal(r.media[i].plays,1);
+    assert.equal(r.media[i].paused,false);
     for (let j = 1; j < 4; j++) assert.ok(Math.abs(group[j].at - group[j-1].at - .5) < 1e-9);
     r.tick(2025);
-    assert.equal(r.media[i].plays, 0);
+    assert.equal(r.media[i].plays, 1);
     r.tick(50); await drain();
     assert.equal(r.engine.state, 'playing');
     assert.equal(r.media[i].plays, 1);
@@ -342,7 +344,7 @@ for (const [name,onset,marker,speed] of [
   await r.engine.start([song(name,{soundOnset:onset,beatOffset:marker,beatOffsetSource:marker?'manual':'default',playbackSpeed:speed})]);
   await drain();
   const entry=Math.max(onset,marker),period=.5/speed;
-  assert.ok(r.media[0].paused);
+  assert.equal(r.media[0].paused,false);
   r.tick(Math.ceil((.05+6.5*period)*1000));await drain();
   assert.ok(r.clicks.length>=7);
   for(let i=1;i<7;i++)assert.ok(Math.abs(r.clicks[i].at-r.clicks[i-1].at-period)<.03,JSON.stringify(r.clicks));
