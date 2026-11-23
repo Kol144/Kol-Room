@@ -198,7 +198,7 @@ export class PlaybackEngine {
     this.setState('announcing');
     this.startClock(() => {});
     try {
-      const spoken=announcement(this.song,this.settings);
+      const spoken=announcement(this.song,this.settings,this.getVoices());
       await this.output.voices.speak(spoken.text, spoken.settings, signal);
       if (this.allowed(signal)) this.afterAnnouncement();
     } catch (err) {

@@ -150,11 +150,11 @@ export function mountPlayer(container, {engine, getSettings, getProjectTempo, sa
   const p = ids(container,'part'), f = ids(container,'field'), btn = ids(container,'action');
   const setHero = coverSlot(p.cover,getCover), setNext = coverSlot(p.nextCover,getCover);
   const updateWake = wakeController(() => getSettings().wakeLock,notify);
-  let selection = [], originalMode = 'single', visible = false;
+  let selection = [], originalMode = 'single', singleIndex = 0, visible = false;
   let state = engine.snapshot(), queueKey = '', regionKey = '', songKey = '';
   let seeking = false, speedDirty = false, draftRate = 1, a = null, b = null;
   let fieldEdit = null, renderedSettings = '';
-  const currentSong = () => state.song || selection[Math.max(0,state.index || 0)] || selection[0];
+  const currentSong = () => state.song || selection[originalMode === 'single' ? singleIndex : 0];
   const actualRate = () => currentSong()?.playbackSpeed ?? getSettings().playbackSpeed ?? 1;
   const stateActive = () => !terminalStates.has(state.state);
   const duration = () => Number(state.duration || currentSong()?.duration || 0);
@@ -221,8 +221,9 @@ export function mountPlayer(container, {engine, getSettings, getProjectTempo, sa
     const entering = state.state === 'countIn' || (state.state === 'paused' && state.pausedFrom === 'countIn');
     const live = cfg.viewMode === 'live';
     const finished = state.state === 'finished';
-    const queue = state.queue?.length ? state.queue : selection;
-    const index = Math.max(0,state.index || 0);
+    const single = originalMode === 'single';
+    const queue = single || !state.queue.length ? selection : state.queue;
+    const index = single ? singleIndex : Math.max(0,state.index);
     const next = state.next ?? queue[index+1];
     const coverSong = resting && next ? next : song;
     const trackChanged = songKey !== (song?.id || '');
@@ -253,8 +254,9 @@ export function mountPlayer(container, {engine, getSettings, getProjectTempo, sa
     btn.main.textContent = ({preparing:'▶ Estamos listos', paused:'▶ Continuar', error:'Reintentar',
       resting:'Pausar descanso', idle:'▶ Reproducir', finished:'▶ Reproducir de nuevo', preview:'Finalizar muestra'})[state.state] || 'Pausar';
     btn.main.disabled = state.state === 'loading';
-    btn.previous.disabled = !stateActive() || index === 0 || preview;
-    btn.next.disabled = !stateActive() && state.state !== 'error' || preview || (!next && state.state !== 'preparing' && state.state !== 'error');
+    btn.previous.disabled = index === 0 || preview || (!single && !stateActive());
+    btn.next.disabled = preview || (single ? !next :
+      !stateActive() && state.state !== 'error' || (!next && state.state !== 'preparing' && state.state !== 'error'));
     btn.next.textContent = state.state === 'preparing' || state.state === 'error' ? 'Saltar canción' : 'Siguiente';
     btn.stop.disabled = !stateActive() && state.state !== 'error';
     btn.restart.hidden = live || resting || preview || finished || state.state === 'idle';
@@ -297,12 +299,20 @@ export function mountPlayer(container, {engine, getSettings, getProjectTempo, sa
     btn.saveRegion.disabled = !hasRegion; btn.clearLoop.disabled = a == null && b == null;
     updateWake(stateActive() && !preview);
   }
-  function show(songs,mode) {
-    if (!songs.some(song => song?.audioId)) { notify('Importa un audio reproducible para empezar.'); return; }
+  function playSingle(index) {
+    const song = selection[index];
+    if (!song) return;
+    singleIndex = index;
+    return engine.start([song],{mode:'single'});
+  }
+  function show(songs,mode,songId) {
+    const playable = songs.filter(song => song?.audioId);
+    const index = mode === 'single' ? playable.findIndex(song => song.id === songId) : 0;
+    if (!playable.length || index < 0) { notify('Importa un audio reproducible para empezar.'); return; }
     onOpen?.(); visible = true; container.hidden = false;
-    selection = songs.filter(s => s.audioId).map(s => ({...s})); originalMode = mode;
+    selection = playable.map(song => ({...song})); originalMode = mode;
     songKey = ''; queueKey = ''; speedDirty = false;
-    const result = engine.start(selection,{mode});
+    const result = mode === 'single' ? playSingle(index) : engine.start(selection,{mode});
     render(engine.snapshot()); p.title.focus({preventScroll:true});
     return result;
   }
@@ -344,12 +354,21 @@ export function mountPlayer(container, {engine, getSettings, getProjectTempo, sa
         else if (state.state === 'paused') await engine.resume();
         else if (state.state === 'error') await engine.retry();
         else if (state.state === 'preview') engine.cancelPreview();
-        else if (terminalStates.has(state.state)) await engine.start(selection,{mode:originalMode});
+        else if (terminalStates.has(state.state)) {
+          if (originalMode === 'single') await playSingle(singleIndex);
+          else await engine.start(selection,{mode:'set'});
+        }
         else engine.pause();
         break;
       case 'stop': engine.stop(); break;
-      case 'previous': await engine.previous(); break;
-      case 'next': await engine.next(); break;
+      case 'previous':
+        if (originalMode === 'single') await playSingle(singleIndex-1);
+        else await engine.previous();
+        break;
+      case 'next':
+        if (originalMode === 'single') await playSingle(singleIndex+1);
+        else await engine.next();
+        break;
       case 'restart': await engine.restart(); break;
       case 'addRest': engine.addRest(10); break;
       case 'skipRest': await engine.skipRest(); break;
@@ -423,6 +442,6 @@ export function mountPlayer(container, {engine, getSettings, getProjectTempo, sa
     } catch (error) { notify(error.message || 'No se pudo guardar el cambio.'); }
   });
   engine.subscribe(snapshot => render(snapshot,false));
-  return {openSet:songs => show(songs,'set'), openSong:song => show([song],'single'), close, refresh:() => render(engine.snapshot())};
+  return {openSet:songs => show(songs,'set'), openSong:(songs,songId) => show(songs,'single',songId), close, refresh:() => render(engine.snapshot())};
 }
 

@@ -153,6 +153,19 @@ test('los BPM se redondean y los títulos ingleses usan fonética inglesa con co
   assert.equal(applyAnalysis({bpmSource:'default'},{},119.6).bpm,120);
 });
 
+test('el anuncio detecta el idioma del título con respaldo y corrección manual', () => {
+  const spanish = {voiceLang:'es-ES', voiceURI:'custom-es'};
+  const english = {voiceLang:'en-US', voiceURI:'custom-en'};
+  const voices = [{voiceURI:'custom-es', lang:'es-MX'},{voiceURI:'custom-en',lang:'en-GB'}];
+  const detected = announcement({title:'The Sound of Silence',pronunciation:'El sonido del silencio'},spanish,voices);
+  assert.equal(detected.text,'El sonido del silencio');
+  assert.equal(detected.settings.voiceLang,'en-US');
+  assert.equal(detected.settings.voiceURI,'kolroom:piper-lessac-en');
+  assert.equal(announcement({title:'Vivir mi vida'},english,voices).settings.voiceLang,'es-ES');
+  assert.equal(announcement({title:'1979'},english,voices).settings.voiceURI,'custom-en');
+  assert.equal(announcement({title:'Hello',speechLanguage:'es-ES'},spanish,voices).settings.voiceURI,'custom-es');
+});
+
 test('el catálogo distingue versiones y artistas y guarda el entero sin pisar un tempo manual', async () => {
   const id='12345678-1234-1234-1234-123456789abc';
   const row={id,trackTitle:'Kill Ur Vibe',artists:[{name:'All Time Low'}],durationMs:210101};

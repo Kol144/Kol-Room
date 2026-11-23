@@ -221,7 +221,7 @@ function activeSession() {
 function openSong(song) {
   if(!song.audioId)return;
   selectedSongId=song.id;
-  player.openSong(song);
+  return player.openSong(current().repertoire,song.id);
 }
 function moveSong(songId,step) {
   return editProject(currentId,project=>{
@@ -290,13 +290,15 @@ function refreshLibrary() {
   scheduleTempo();
 }
 function switchView(view) {
-  if(view!==activeView && activeView==='metronome')stopMetronome();
+  const changing = view !== activeView;
+  if(changing && activeView==='metronome')stopMetronome();
   activeView=view;
   for(const tab of document.querySelectorAll('.nav-tab')){
     const on=tab.dataset.view===view;
     tab.classList.toggle('active',on);tab.setAttribute('aria-selected',String(on));tab.tabIndex=on?0:-1;
   }
   for(const section of document.querySelectorAll('.view'))section.hidden=section.id!==view+'View';
+  if(changing)window.scrollTo(0,0);
   if(view==='settings')settingsPanel.refresh();
   if(view==='repertoire')player.refresh();
 }
@@ -492,7 +494,7 @@ function bindEvents() {
   const nameProject=title=>{const id=currentId;showModal(title,current().name,async name=>{
     await editProject(id,p=>{p.name=name;p.saved=true;});renderProjects();toast('Proyecto guardado');
   });};
-  $('renameProjectBtn').onclick=()=>nameProject('Renombrar proyecto');
+  $('renameProjectBtn').onclick=$('renameRepertoireBtn').onclick=()=>nameProject('Renombrar repertorio');
   $('saveProjectBtn').onclick=guard(async()=>{
     if(!current().saved)return nameProject('Guardar proyecto');
     await pending;toast('Proyecto guardado en este dispositivo');
@@ -540,7 +542,12 @@ function bindEvents() {
   window.addEventListener('pagehide',()=>{importJob?.controller.abort();stopMetronome();engine.stop();});
 }
 async function initialize() {
-  try{settings={...settings,...JSON.parse(readPreference(settingsKey)||'{}')};}catch{}
+  try{
+    const stored=JSON.parse(readPreference(settingsKey)||'{}') || {};
+    settings={...settings,...stored};
+    if(!stored.clickVolumeV2 && stored.clickVolume===.6)settings.clickVolume=UI_DEFAULTS.clickVolume;
+  }catch{}
+  settings.clickVolumeV2=true;
   if (!settings.soundEntryV2) {
     settings={...settings,metronomeEnabled:true,soundEntryV2:true};
     localStorage.setItem(settingsKey,JSON.stringify(settings));
