@@ -334,3 +334,18 @@ test('el silencio completo nunca activa el metrónomo musical',async()=>{
   assert.equal(r.clicks.length,0);
   r.engine.stop();
 });
+
+for (const [name,onset,marker,speed] of [
+  ['entrada inmediata',0,0,1],['silencio largo',8.137,0,1],['primer golpe marcado',.02,3.27,.8]
+]) test('cuatro clics y un quinto pulso continuo con '+name,async()=>{
+  const r=rig({announcements:false,countIn:true,metronomeEnabled:true});
+  await r.engine.start([song(name,{soundOnset:onset,beatOffset:marker,beatOffsetSource:marker?'manual':'default',playbackSpeed:speed})]);
+  await drain();
+  const entry=Math.max(onset,marker),period=.5/speed;
+  assert.ok(r.media[0].paused);
+  r.tick(Math.ceil((.05+6.5*period)*1000));await drain();
+  assert.ok(r.clicks.length>=7);
+  for(let i=1;i<7;i++)assert.ok(Math.abs(r.clicks[i].at-r.clicks[i-1].at-period)<.03,JSON.stringify(r.clicks));
+  assert.ok(Math.abs(r.media[0].currentTime-entry-(r.output.time-r.clicks[4].at)*speed)<.03);
+  r.engine.stop();
+});

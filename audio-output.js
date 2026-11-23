@@ -1,5 +1,5 @@
 // The music streams from a local Blob. Clicks are synthesized on the audio clock.
-import {spanishVoice,englishVoice,speakNeural,usesNeural,primeNeural} from './neural-voice.js';
+import {spanishVoice,englishVoice,speakNeural,usesNeural,primeNeural,prepareNeural} from './neural-voice.js';
 import {firstSound} from './sound-onset.js';
 export const defaults = Object.freeze({
   announcementGap: 3,
@@ -60,6 +60,7 @@ const contextClass = () => globalThis.AudioContext || globalThis.webkitAudioCont
 
 // A different provider can implement voices() and speak(text, settings, signal).
 export class DeviceSpeech {
+  async prepare(text,settings) { if(usesNeural(settings)) await prepareNeural(text,settings); }
   voices() { return [spanishVoice,englishVoice,...(globalThis.speechSynthesis?.getVoices() || [])]; }
 
   speak(text, settings, signal) {
@@ -236,7 +237,10 @@ export class AudioOutput {
           analysers.push(analyser);
           return new Float32Array(size);
         });
-        return {audio,dispose,soundAge:() => {
+        return {audio,dispose,measureEntry:async signal => {
+          const {measureEntry} = await import('./media.js');
+          return measureEntry(blob,audio.duration,signal);
+        },soundAge:() => {
           analysers.forEach((analyser, i) => analyser.getFloatTimeDomainData(channels[i]));
           const onset = firstSound(channels, rate);
           return onset == null ? null : size / rate - onset;

@@ -124,6 +124,16 @@ export async function analyzeAudio(blob, options = {}) {
   return (await analyze(blob, duration, options)).result;
 }
 
+// Older imports lack a sample onset. Inspect their opening without rerunning
+// the spectral tempo/key analysis. Large files stay within the mobile budget.
+export async function measureEntry(blob, duration, signal) {
+  try {
+    const input = blob.size > maxInput || duration > maxDuration ? blob.slice(0, 2 * 1024 ** 2) : blob;
+    const buffer = await decoded(input, analysisRate, signal);
+    return firstSound(Array.from({length:buffer.numberOfChannels}, (_,i) => buffer.getChannelData(i)),buffer.sampleRate);
+  } catch { checkSignal(signal); return null; }
+}
+
 export async function prepareCover(blob) {
   if (!blob || !blob.size || blob.size > 16 * 1024 ** 2) throw new Error('Elige una imagen de hasta 16 MB.');
   const url = URL.createObjectURL(blob);

@@ -132,6 +132,7 @@ async function saveSong(songId,patch) {
   });
   const updated=project.repertoire.find(song=>song.id===songId);
   if(id===currentId) engine.updateSong(updated);
+  if(updated.audioId && ['title','speechLanguage','pronunciation'].some(key=>key in patch)) engine.prepareAnnouncement(updated).catch(()=>{});
   return updated;
 }
 function releaseUnusedCovers() {
@@ -392,11 +393,16 @@ async function importAudio(files,target) {
         const project=projects.find(p=>p.id===target.projectId);
         if(!project)throw Error('El proyecto ya no existe.');
         const newSong=target.songId ? undefined : cleanSong({id,title:prepared.tagTitle||file.name.replace(/\.[^.]+$/,''),artist:prepared.tagArtist||'',bpmSource:'default'},project.bpm);
-        await applyAsset(target.projectId,id,()=>{
+        const saved=await applyAsset(target.projectId,id,()=>{
           options.signal.throwIfAborted();
           return library.attachAudio(db,target.projectId,id,prepared,{newSong});
         });
         imported++;
+        if(saved && settings.announcements) {
+          options.onStatus(label+'Preparando el anuncio de «'+saved.title+'»…');
+          try { await engine.prepareAnnouncement(saved); }
+          catch { failures.push(saved.title+' · Audio guardado. El anuncio se preparará al reproducir.'); }
+        }
         if(currentId===target.projectId && files.length===1){selectedSongId=id;editorOpen=true;}
       }catch(error){if(options.signal.aborted)throw error;failures.push(file.name+' · '+(error.message||'Error al importar'));}
     }

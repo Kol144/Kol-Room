@@ -78,6 +78,7 @@ export function cleanProject(raw) {
 export function applyAnalysis(song, result, projectBpm = 120) {
   const next = { ...song, detectedBpm: result.detectedBpm ? Math.round(result.detectedBpm) : null, detectedKey: result.detectedKey || '',
     soundOnset: result.soundOnset ?? null,
+    onsetMeasured: Object.hasOwn(result,'soundOnset'),
     detectedBeatPeriod: result.detectedBpm ? 60 / result.detectedBpm : null,
     detectedBeatOffset: result.detectedBeatOffset ?? null,
     bpmConfidence: result.bpmConfidence || 0, keyConfidence: result.keyConfidence || 0,

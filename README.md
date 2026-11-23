@@ -6,7 +6,9 @@ Esta copia independiente se guarda en la carpeta `Kol room` y se publica en `Kol
 
 Los BPM se muestran y guardan como enteros. Al importar con conexión se consulta ReccoBeats y, si hace falta, MusicBrainz y AcousticBrainz. Una grabación identificada por sus etiquetas o por título, artista y duración puede fijar el tempo del metrónomo. El editor muestra la fuente, permite volver a buscar y respeta los ajustes manuales. Si la búsqueda queda sin resultado, se conserva el tempo local.
 
-La cuenta de entrada opcional da cuatro pulsos antes de reproducir el archivo. Dentro del tema, el primer clic coincide con el primer sonido audible, incluso si hay silencio inicial o la batería entra más tarde. Las canciones antiguas también pueden detectar la entrada durante la reproducción. Los pulsos siguientes siguen el intervalo medido en segundos, con la fase de la grabación cuando se ha podido estimar.
+Con la cuenta activada, Kol Room prepara la posición del audio mientras suenan cuatro pulsos para que el primer golpe entre en el quinto. Usa el primer pulso marcado o detectado y, en su ausencia, el primer sonido. Al desactivar la cuenta se escucha el archivo desde el principio y el clic espera al primer sonido. La reproducción usa el intervalo medido en segundos.
+
+Durante la importación también se sintetiza el anuncio neuronal y se guarda en el dispositivo para futuros ensayos, incluso sin conexión. Cambiar el título, la pronunciación, el modelo o la velocidad de voz da lugar a una locución distinta. La pausa entre el título y la cuenta se puede ajustar en **Ajustes → Voz y anuncios**.
 
 Los anuncios pueden usar DaveFX en español o Lessac en inglés. La selección automática reconoce vocabulario frecuente del título. Para nombres propios o resultados ambiguos, el editor permite fijar el idioma y escribir una pronunciación específica. El modelo inglés se descarga en su primer uso y después se conserva en la caché de la web.
 
