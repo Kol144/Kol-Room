@@ -164,7 +164,10 @@ export class PlaybackEngine {
     this.startClock(() => {});
     try {
       const settings = this.settings;
-      if (this.mode !== 'practice') this.prepareAnnouncement(this.song).catch(()=>{});
+      if (this.mode !== 'practice') {
+        this.prepareAnnouncement(this.song).catch(()=>{});
+        if (this.queue[index + 1]) this.prepareAnnouncement(this.queue[index + 1]).catch(()=>{});
+      }
       await this.output.unlock(settings);
       if (!this.allowed(signal)) return;
       try { await this.output.setOutputs(settings.musicSinkId || '', settings.clickSinkId || ''); }

@@ -264,7 +264,7 @@ export class AudioOutput {
     tone.frequency.value=music ? 440 : 1000;
     const at=ctx.currentTime;
     envelope.gain.setValueAtTime(0,at);
-    envelope.gain.linearRampToValueAtTime(.2,at+.02);
+    envelope.gain.linearRampToValueAtTime(music ? .2 : .7,at+.02);
     envelope.gain.linearRampToValueAtTime(0,at+.6);
     tone.connect(envelope).connect(bus.gain);
     tone.onended=()=>{tone.disconnect();envelope.disconnect();};
@@ -281,7 +281,9 @@ export class AudioOutput {
     oscillator.frequency.value = wood ? (accent ? 1500 : 1000) : (accent ? 1200 : 800);
     const t = Math.max(at, ctx.currentTime);
     gain.gain.setValueAtTime(.0001, t);
-    gain.gain.exponentialRampToValueAtTime(.42, t + .003);
+    // Keep ample headroom below full scale while making the click audible
+    // over music played at rehearsal volume.
+    gain.gain.exponentialRampToValueAtTime(.8, t + .003);
     gain.gain.exponentialRampToValueAtTime(.0001, t + .055);
     oscillator.connect(gain).connect(this.clickBus.gain);
     const node = {oscillator, gain};

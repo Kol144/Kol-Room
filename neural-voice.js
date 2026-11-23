@@ -2,7 +2,11 @@ export const spanishVoice = Object.freeze({voiceURI:'frumos:piper-davefx',name:'
 export const englishVoice = Object.freeze({voiceURI:'kolroom:piper-lessac-en',name:'Lessac · neuronal inglesa',lang:'en-US',localService:true});
 const clips=new Map();
 const preparing=new Map();
+const pending=new Map();
 let context;
+let worker;
+let nextRequest=0;
+let workerIdle;
 export function usesNeural(settings) {
   return [spanishVoice.voiceURI,englishVoice.voiceURI].includes(settings.voiceURI) || (!settings.voiceURI && /^(es|en)\b/i.test(settings.voiceLang));
 }
@@ -10,25 +14,51 @@ export function primeNeural() {
   context ||= new (globalThis.AudioContext || globalThis.webkitAudioContext)();
   return context.resume();
 }
+function getWorker() {
+  if(worker)return worker;
+  const instance=new Worker(new URL('voice/synth.js',document.baseURI));
+  instance.onmessage=({data})=>{
+    const job=pending.get(data.id);
+    if(!job)return;
+    pending.delete(data.id);
+    if(data.error || !data.pcm?.length)job.reject(Error(data.error || 'No se generó la locución.'));
+    else job.resolve(data);
+    if(!pending.size)workerIdle=setTimeout(()=>{
+      if(worker===instance && !pending.size){instance.terminate();worker=null;}
+    },60000);
+  };
+  const fail=()=>{
+    const jobs=[...pending.values()];
+    pending.clear();
+    worker=null;
+    instance.terminate();
+    for(const job of jobs)job.reject(Error('El dispositivo no pudo iniciar la voz neuronal.'));
+  };
+  instance.onerror=fail;
+  instance.onmessageerror=fail;
+  worker=instance;
+  return instance;
+}
 function synthesize(text,speed,model,signal) {
   const key=JSON.stringify([text,speed,model]);
   if(clips.has(key))return Promise.resolve(clips.get(key));
   return new Promise((resolve,reject)=>{
     signal.throwIfAborted();
-    const worker=new Worker(new URL('voice/synth.js',document.baseURI));
-    const finish=(fn,value)=>{
-      clearTimeout(timeout);signal.removeEventListener('abort',abort);worker.terminate();fn(value);
-    };
-    const abort=()=>finish(reject,signal.reason);
-    const timeout=setTimeout(()=>finish(reject,Error('La voz neuronal ha tardado demasiado.')),45000);
-    signal.addEventListener('abort',abort,{once:true});
-    worker.onerror=()=>finish(reject,Error('El dispositivo no pudo iniciar la voz neuronal.'));
-    worker.onmessage=({data})=>{
-      if(data.error || !data.pcm?.length)return finish(reject,Error(data.error || 'No se generó la locución.'));
+    const id=++nextRequest;
+    clearTimeout(workerIdle);
+    const timeout=setTimeout(()=>finish(Error('La voz neuronal ha tardado demasiado.')),45000);
+    const abort=()=>finish(signal.reason || Error('Anuncio cancelado.'));
+    const cleanup=()=>{clearTimeout(timeout);signal.removeEventListener('abort',abort);pending.delete(id);};
+    const finish=error=>{cleanup();reject(error);};
+    pending.set(id,{resolve:data=>{
+      cleanup();
       if(clips.size>=12)clips.delete(clips.keys().next().value);
-      clips.set(key,data);finish(resolve,data);
-    };
-    worker.postMessage({text,speed,model});
+      clips.set(key,data);
+      resolve(data);
+    },reject:finish});
+    signal.addEventListener('abort',abort,{once:true});
+    try { getWorker().postMessage({id,text,speed,model}); }
+    catch(error){finish(error);}
   });
 }
 export function prepareNeural(text,settings) {
@@ -49,7 +79,12 @@ export function prepareNeural(text,settings) {
       const hit=await cache.match(url);
       if(hit){
         const rate=Number(hit.headers.get('X-Sample-Rate')),pcm=new Float32Array(await hit.arrayBuffer());
-        if(rate>0 && pcm.length)return {pcm,rate};
+        if(rate>0 && pcm.length){
+          const clip={pcm,rate};
+          if(clips.size>=12)clips.delete(clips.keys().next().value);
+          clips.set(key,clip);
+          return clip;
+        }
       }
     } catch { /* Cache storage is optional on some phones. */ }
     const clip=await synthesize(text,speed,model,new AbortController().signal);
