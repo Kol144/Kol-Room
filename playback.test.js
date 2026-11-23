@@ -50,7 +50,9 @@ function rig(settings = {}, getAudio = async id => id) {
   const tick = ms => {
     while (ms > 0) {
       const step = Math.min(ms, 25); ms -= step; time += step;
-      for (const audio of audible) audio.currentTime += step / 1000 * audio.playbackRate;
+      for (const audio of audible) {
+        if (!audio.seeking && audio.readyState >= 3) audio.currentTime += step / 1000 * audio.playbackRate;
+      }
       for (const fn of [...timers]) fn();
     }
   };
@@ -80,7 +82,9 @@ test('la pausa tras la voz espera el tiempo configurado y se puede congelar o de
     await r.engine.start([song('A')]);r.speech[0].resolve();await drain();
     assert.equal(r.engine.state,'announcementGap');r.tick(1000);r.engine.pause();r.tick(7000);
     await r.engine.resume();r.tick(1975);assert.equal(r.clicks.length,0);
-    if(stop)r.engine.stop();r.tick(25);assert.equal(r.clicks.length,stop?0:4);
+    if (stop) r.engine.stop();
+    r.tick(25); await drain();
+    assert.equal(r.clicks.length, stop ? 0 : 4);
   }
 });
 
@@ -152,6 +156,7 @@ for (const phase of ['loading','announcing','countIn','playing','resting']) {
     if (phase === 'resting') r.media[0].end();
     assert.equal(r.engine.state, phase);
     const count = r.media.reduce((n,m) => n + m.plays, 0);
+    const stoppedAt = r.output.time, planned = r.clicks.length;
     r.engine.stop();
     file.resolve('A'); r.speech[0]?.resolve(); await drain();
     for (const m of r.media) m.end();
@@ -159,7 +164,8 @@ for (const phase of ['loading','announcing','countIn','playing','resting']) {
     assert.equal(r.engine.state, 'idle');
     assert.equal(r.media.reduce((n,m) => n + m.plays, 0), count);
     assert.equal(r.timerCount, 0);
-    assert.ok(r.clicks.every(c => c.canceled || phase !== 'countIn'));
+    assert.equal(r.clicks.length, planned);
+    assert.ok(r.clicks.every(c => c.at <= stoppedAt || c.canceled));
     assert.equal(r.audible.size, 0);
   });
 }
@@ -167,16 +173,25 @@ for (const phase of ['loading','announcing','countIn','playing','resting']) {
 test('pausar una cuenta y continuar empieza una cuenta completa a BPM efectivo', async () => {
   const r = rig({announcements:false});
   await r.engine.start([song('A',{playbackSpeed:.8})]);
+  const audio = r.media[0];
   r.tick(700); r.engine.pause();
   assert.equal(r.engine.snapshot().pausedFrom, 'countIn');
-  r.tick(5000); assert.equal(r.media[0].plays, 0);
+  const pausedAt = audio.currentTime;
+  assert.ok(pausedAt > 0 && audio.paused);
+  r.tick(5000); assert.equal(audio.currentTime, pausedAt);
+  assert.equal(audio.plays, 1);
   await r.engine.resume();
   const live = r.clicks.slice(-4);
-  assert.ok(Math.abs(live[1].at - live[0].at - .625) < 1e-9);
-  r.tick(2525); assert.equal(r.media[0].plays, 0);
-  r.tick(50); assert.equal(r.media[0].plays, 1);
-  r.engine.pause(); const pos = r.media[0].currentTime;
-  r.tick(2000); assert.equal(r.media[0].currentTime, pos);
+  assert.deepEqual(live.map(c => c.beat), [0,1,2,3]);
+  for (let i = 1; i < 4; i++) assert.ok(Math.abs(live[i].at - live[i-1].at - .625) < 1e-9);
+  assert.equal(audio.currentTime, 0);
+  assert.equal(audio.paused, false);
+  r.tick(2475); assert.equal(r.engine.state, 'countIn');
+  assert.ok(Math.abs(audio.currentTime - 2.475 * .8) < .001);
+  r.tick(50); assert.equal(r.engine.state, 'playing');
+  assert.equal(audio.plays, 2);
+  r.engine.pause(); const pos = audio.currentTime;
+  r.tick(2000); assert.equal(audio.currentTime, pos);
   await r.engine.resume();
   assert.equal(r.media[0].playbackRate, .8);
   r.engine.stop();
@@ -337,17 +352,43 @@ test('el silencio completo nunca activa el metrónomo musical',async()=>{
   r.engine.stop();
 });
 
-for (const [name,onset,marker,speed] of [
-  ['entrada inmediata',0,0,1],['silencio largo',8.137,0,1],['primer golpe marcado',.02,3.27,.8]
+for (const [name,onset,marker,speed,positionOnFive] of [
+  ['entrada inmediata',0,0,1,2],
+  ['intro corta',.137,0,1.25,2.137],
+  ['silencio largo',8.137,0,1,8.137],
+  ['primer golpe marcado',.02,3.27,.8,3.27]
 ]) test('cuatro clics y un quinto pulso continuo con '+name,async()=>{
   const r=rig({announcements:false,countIn:true,metronomeEnabled:true});
   await r.engine.start([song(name,{soundOnset:onset,beatOffset:marker,beatOffsetSource:marker?'manual':'default',playbackSpeed:speed})]);
   await drain();
-  const entry=Math.max(onset,marker),period=.5/speed;
+  const period=.5/speed;
   assert.equal(r.media[0].paused,false);
-  r.tick(Math.ceil((.05+6.5*period)*1000));await drain();
-  assert.ok(r.clicks.length>=7);
-  for(let i=1;i<7;i++)assert.ok(Math.abs(r.clicks[i].at-r.clicks[i-1].at-period)<.03,JSON.stringify(r.clicks));
-  assert.ok(Math.abs(r.media[0].currentTime-entry-(r.output.time-r.clicks[4].at)*speed)<.03);
+  r.tick(Math.ceil((r.clicks[0].at+6.5*period)*1000));await drain();
+  assert.equal(r.media[0].plays,1);
+  assert.equal(r.clicks.length,7);
+  for(let i=1;i<7;i++)assert.ok(Math.abs(r.clicks[i].at-r.clicks[i-1].at-period)<.002,JSON.stringify(r.clicks));
+  const positionAtClick=r.media[0].currentTime-(r.output.time-r.clicks[4].at)*speed;
+  assert.ok(Math.abs(positionAtClick-positionOnFive)<.002);
+  r.engine.stop();
+});
+
+test('la cuenta espera al arranque del audio y recupera los pulsos pendientes tras una interrupción del búfer', async () => {
+  const r = rig({announcements:false, metronomeEnabled:true});
+  await r.engine.open(song('A', {soundOnset:0}));
+  const audio = r.media[0], playing = audio.play.bind(audio), ready = deferred();
+  audio.play = async () => { await ready.promise; return playing(); };
+  const resume = r.engine.resume();
+  await drain(); r.tick(800);
+  assert.equal(r.clicks.length, 0);
+  ready.resolve(); await resume; await drain();
+  r.tick(600);
+  audio.readyState = 2; event(audio, 'waiting');
+  r.tick(600);
+  audio.readyState = 4; event(audio, 'playing');
+  r.tick(2000);
+  const heard = r.clicks.filter(c => !c.canceled);
+  assert.deepEqual(heard.map(c => c.beat), [0,1,2,3,4,5]);
+  assert.deepEqual(heard.map(c => Math.round(c.at * 1000)), [800,1300,2400,2900,3400,3900]);
+  assert.equal(r.engine.state, 'playing');
   r.engine.stop();
 });

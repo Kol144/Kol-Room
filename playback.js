@@ -69,7 +69,6 @@ export class PlaybackEngine {
 
   // One task owns all callbacks and all pending clicks for the current phase.
   cancelTask() {
-    clearTimeout(this.entryTimer);
     this.task.abort();
     this.task = new AbortController();
     this.stopClock();
@@ -245,66 +244,65 @@ export class PlaybackEngine {
   }
   countIn() {
     if (!(this.countOverride ?? this.settings.countIn)) return this.playTrack();
-    const signal = this.cancelTask();
-    const period = 60 / effectiveBpm(this.song, this.settings);
-    const audio = this.track.audio, rate = audio.playbackRate;
     const onset = this.song.soundOnset ?? this.liveOnset;
-    // With a count, line up the marked or measured beat. Without one, play the
-    // untouched recording. A practice loop keeps its own start position.
     let entry = this.loop ? this.loop.a : onset;
     if (!this.loop && onset != null && this.song.beatOffsetSource !== 'default' && this.song.beatOffset > onset && this.song.beatOffset < this.duration) entry = this.song.beatOffset;
-    const lead = this.loop ? 0 : period * 4;
     this.countAnchor = entry;
-    if (entry != null) {
-      const from = Math.max(0, entry - lead * rate);
-      if (Math.abs(audio.currentTime - from) > .001) audio.currentTime = from;
-      this.resetPosition(audio.currentTime);
-      this.entryPending = true;
-    }
-    const first = this.output.time + .05;
-    this.setState('countIn');
-    try {
-      const pulse = n => { if (!signal.aborted) { this.beat = n; this.emit(); } };
-      for (let i = 0; i < 4; i++) this.output.click(first + period * i, i, pulse);
-    } catch (err) { return this.fail(err); }
-    const downbeat = first + 4 * period;
-    const enter = () => {
-      if (!this.allowed(signal) || this.state !== 'countIn' || this.output.time + .001 < downbeat) return;
-      if (this.output.time - downbeat > .3) return this.pause();
-      this.setState(this.mode === 'practice' ? 'practice' : 'playing');
-      this.startClock(() => this.musicTick());
-    };
-    this.startClock(enter);
-    if (this.timing === clock) this.entryTimer = setTimeout(enter, Math.max(0,(downbeat-this.output.time)*1000));
-    this.playTrack({duringCount:true});
+    const grid = new BeatGrid(this.song, entry);
+    // All positions are in recording seconds. A short intro starts at zero
+    // and continues through the count; a longer one can land its cue on five.
+    const start = this.loop?.a ?? (entry == null ? this.segmentStart : Math.max(0, entry - 4 * grid.interval));
+    const phase = entry == null ? start : grid.offset;
+    const beatsBeforeCue = Math.floor((phase - start) / grid.interval + 1e-7);
+    const first = phase - beatsBeforeCue * grid.interval;
+    return this.playTrack({start, first, interval: grid.interval, next: 0});
   }
-  async playTrack({duringCount=false}={}) {
+  async playTrack(count = null) {
     if (!this.track) return this.select(this.index);
-    const signal = duringCount ? this.task.signal : this.cancelTask();
+    const signal = this.cancelTask();
     const audio = this.track.audio;
     this.applyTrack();
+    if (count) {
+      if (Math.abs(audio.currentTime - count.start) > .001) audio.currentTime = count.start;
+      this.resetPosition(audio.currentTime);
+    }
     this.lastBeat = null;
     this.lastPaint = -Infinity;
     this.buffering = false;
+    let started = false;
+    const tick = () => { if (started) this.musicTick(count); };
     const listen = (event, fn) => audio.addEventListener(event, fn, {signal});
     listen('ended', () => { if (audio.ended && this.allowed(signal)) this.endMedia(); });
     listen('error', () => this.fail(new Error('Se ha interrumpido la lectura del audio. Puedes reintentar u omitir la canción.')));
-    listen('waiting', () => { this.buffering = true; this.resetGrid(); });
-    listen('seeking', () => { this.buffering = true; this.resetPosition(audio.currentTime); this.resetGrid(); });
+    const stalled = () => {
+      this.buffering = true;
+      if (count?.next) {
+        const elapsed = (audio.currentTime - count.first) / count.interval;
+        count.next = Math.min(4, Math.max(0, Math.floor(elapsed + 1e-7) + 1));
+      }
+      this.resetGrid();
+    };
+    listen('waiting', stalled);
+    listen('seeking', () => { this.resetPosition(audio.currentTime); stalled(); });
     for (const event of ['playing', 'seeked']) listen(event, () => {
       this.buffering = audio.seeking || audio.readyState < 3;
-      if (!(duringCount && event === 'playing')) this.resetGrid();
     });
     listen('pause', () => {
-      if (audio.paused && !audio.ended && !audio.seeking && activeMusic(this.state)) this.pause();
+      if (audio.paused && !audio.ended && !audio.seeking && (activeMusic(this.state) || this.state === 'countIn')) this.pause();
     });
-    if (!duringCount) {
-      this.setState(this.mode === 'practice' ? 'practice' : 'playing');
-      this.startClock(() => this.musicTick());
-    }
+    this.setState(count ? 'countIn' : this.mode === 'practice' ? 'practice' : 'playing');
+    this.startClock(tick);
     try {
       await audio.play();
-      if (this.allowed(signal) && !duringCount) this.musicTick();
+      if (!this.allowed(signal)) return;
+      if (count) {
+        // If startup missed a beat, give the player four whole beats from
+        // the next grid position. Later buffering only requeues pending clicks.
+        const late = audio.currentTime - count.first - .025 * audio.playbackRate;
+        if (late > 0) count.first += Math.ceil(late / count.interval) * count.interval;
+      }
+      started = true;
+      tick();
     } catch (err) {
       if (!signal.aborted) this.fail(new Error('No se pudo iniciar la música. Pulsa Reintentar. ' + (err.message || '')));
     }
@@ -323,15 +321,30 @@ export class PlaybackEngine {
     this.heardAfterSeek = false;
     this.entryPending = onset == null ? this.listeningFromStart : position <= onset;
   }
-  musicTick() {
+  musicTick(count) {
     const audio = this.track.audio;
     if (audio.paused || audio.seeking || this.buffering || audio.readyState < 2) return;
     const position = audio.currentTime;
-    if (this.loop && position >= this.loop.b) return this.endPass();
-    this.scheduleMusicClicks(position, audio.playbackRate);
+    const rate = audio.playbackRate;
+    let musicFrom = -Infinity;
+    if (this.state === 'countIn') {
+      musicFrom = count.first + 4 * count.interval;
+      if (count.next < 4) {
+        const now = this.output.time;
+        const pulse = n => { this.beat = n; this.emit(); };
+        for (let i = count.next; i < 4; i++) {
+          const delay = (count.first + i * count.interval - position) / rate;
+          if (delay >= -.025) this.output.click(now + Math.max(0, delay), i, pulse);
+        }
+        count.next = 4;
+      }
+      if (position >= musicFrom - 1e-7) this.setState(this.mode === 'practice' ? 'practice' : 'playing');
+    }
+    if (this.loop && position >= this.loop.b && activeMusic(this.state)) return this.endPass();
+    this.scheduleMusicClicks(position, rate, musicFrom);
     if (this.timing.now() - this.lastPaint >= 100) { this.lastPaint = this.timing.now(); this.emit(); }
   }
-  scheduleMusicClicks(position, rate) {
+  scheduleMusicClicks(position, rate, musicFrom) {
     let onset = this.countAnchor ?? this.song.soundOnset ?? this.liveOnset ?? this.seekOnset;
     if (onset == null && this.track.soundAge && !this.heardAfterSeek) {
       const age = this.track.soundAge();
@@ -349,16 +362,16 @@ export class PlaybackEngine {
       return;
     }
     const boundary = Math.min(position + .12 * rate, this.loop?.b ?? this.duration);
-    if (onset != null && boundary <= onset) return;
+    if (boundary <= musicFrom || (onset != null && boundary <= onset)) return;
     const grid = new BeatGrid(this.song, onset);
     const at = mediaTime => this.output.time + Math.max(0, mediaTime - position) / rate;
     if (onset != null && this.entryPending) {
-      this.output.click(at(onset), 0);
+      if (onset >= musicFrom - 1e-7) this.output.click(at(onset), 0);
       this.entryPending = false;
     }
     // The first cue follows the audible sample. Subsequent beats retain their
     // original recording phase, including after pausing, seeking and speed changes.
-    let beat = Math.max(onset == null ? 0 : 1, (this.lastBeat ?? -1) + 1, grid.firstAfter(position - .012 * rate));
+    let beat = Math.max(onset == null ? 0 : 1, (this.lastBeat ?? -1) + 1, grid.firstAfter(Math.max(musicFrom, position - .012 * rate)));
     while (grid.at(beat) < boundary) {
       this.output.click(at(grid.at(beat)), beat + grid.beatNumber);
       this.lastBeat = beat++;

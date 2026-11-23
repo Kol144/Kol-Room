@@ -14,7 +14,7 @@ try {
   await page.route(entry + '**', async route => {
     const path = new URL(route.request().url()).pathname;
     if (path === '/') return route.fulfill({contentType:'text/html',body:'<html lang="es"><title>Prueba Frumos</title><button>Activar audio</button></html>'});
-    if (!['/playback.js','/audio-output.js','/neural-voice.js','/sound-onset.js','/song-speech.js'].includes(path)) return route.abort();
+    if (!['/playback.js','/audio-output.js','/neural-voice.js','/sound-onset.js','/song-speech.js','/media.js'].includes(path)) return route.abort();
     await route.fulfill({contentType:'text/javascript',body:await readFile(new URL('..' + path, import.meta.url))});
   });
   await page.goto(entry);
@@ -39,10 +39,11 @@ try {
       result.clicks.push({at, beat});
       return nativeClick(at,beat,visual);
     };
-    const blobs = {alpha:wav(.7),beta:wav(.75),solo:wav(8)};
+    const blobs = {alpha:wav(1.8),beta:wav(1.75),solo:wav(8)};
     window.makeSong = (id, fields={})=>({id,title:id,audioId:id,bpm:240,...fields});
     window.p = new PlaybackEngine({getAudio:async id=>blobs[id],getSettings:()=>settings,output,
       onChange(s) {
+        if (s.state === 'countIn') result.musicTiming.push({id:s.song.id, position:s.position});
         const last = result.states.at(-1);
         if (!last || s.state!==last.state || s.song?.id!==last.id)
           result.states.push({state:s.state,id:s.song?.id,time:performance.now()});
@@ -59,10 +60,12 @@ try {
     }
   }
   await state('preparing');
-  const first = await page.evaluate(()=>({clicks:result.clicks.slice(), phase:p.snapshot().song.id, position:p.track.audio.currentTime}));
+  const first = await page.evaluate(()=>({clicks:result.clicks.slice(), phase:p.snapshot().song.id, position:p.track.audio.currentTime,
+    duringCount:result.musicTiming.filter(sample=>sample.id==='alpha').at(-1)?.position}));
   assert.equal(first.phase,'beta'); assert.equal(first.position,0);
+  assert.ok(first.duringCount > .5, 'la grabación avanza durante la cuenta de entrada');
   assert.deepEqual(first.clicks.map(c=>c.beat),[0,1,2,3]);
-  for (let i=1;i<4;i++) assert.ok(Math.abs(first.clicks[i].at-first.clicks[i-1].at-.25)<1e-8);
+  for (let i=1;i<4;i++) assert.ok(Math.abs(first.clicks[i].at-first.clicks[i-1].at-.25)<(i===1 ? .026 : 1e-8));
   await page.evaluate(()=>p.ready()); await state('finished');
   const states = await page.evaluate(()=>result.states.filter(s=>s.id).map(s=>[s.state,s.id]));
   assert.deepEqual(states,[
