@@ -1,3 +1,5 @@
+import { detectTitleLanguage } from './song-speech.js';
+
 const byId = id => document.getElementById(id);
 const notes = ['Do', 'Do♯', 'Re', 'Mi♭', 'Mi', 'Fa', 'Fa♯', 'Sol', 'La♭', 'La', 'Si♭', 'Si'];
 function parseKey(key) {
@@ -25,7 +27,20 @@ export function mountEditor({selected,patch,move,remove,close,importAudio,remove
   for (const [id,callback] of Object.entries(buttons)) el(id).onclick=callback;
   el('useSongTempo').onclick=setMetroTempo;
   el('searchOnlineBpm').onclick=searchTempo;
-  el('songTitleInput').onchange = event => {const title=event.target.value.trim(); if(title) update({title}); else event.target.value=selected().title;};
+  const syncTitleLanguage = () => {
+    const detected = detectTitleLanguage(el('songTitleInput').value);
+    const label = {'es-ES':'Español','en-US':'Inglés'}[detected] || 'Idioma de ajustes';
+    el('songSpeechLanguage').options[0].textContent = 'Automático · '+label;
+  };
+  el('songTitleInput').oninput = syncTitleLanguage;
+  el('songTitleInput').onchange = event => {
+    const title = event.target.value.trim();
+    if (title) update({title});
+    else {
+      event.target.value = selected().title;
+      syncTitleLanguage();
+    }
+  };
   el('songArtistInput').onchange = event => update({artist:event.target.value.trim()});
   el('songPronunciation').onchange=event=>update({pronunciation:event.target.value.trim()});
   el('songSpeechLanguage').onchange=event=>update({speechLanguage:event.target.value});
@@ -64,6 +79,7 @@ export function mountEditor({selected,patch,move,remove,close,importAudio,remove
     el('editorHeading').textContent='Editar · '+song.title;
     set('songTitleInput',song.title);set('songArtistInput',song.artist);set('songBpm',song.bpm);
     set('songPronunciation',song.pronunciation || '');set('songSpeechLanguage',song.speechLanguage || '');
+    syncTitleLanguage();
     const usingOnline = song.bpmSource === 'online' && song.bpm === song.onlineBpm;
     el('acceptOnlineBpm').hidden=!song.onlineBpm || usingOnline;
     el('acceptOnlineBpm').textContent='Usar '+(song.onlineBpm || '')+' BPM';

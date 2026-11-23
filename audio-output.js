@@ -4,7 +4,7 @@ import {firstSound} from './sound-onset.js';
 export const defaults = Object.freeze({
   announcementGap: 3,
   announcements: true, voiceURI: '', voiceLang: 'es-ES', voiceRate: 1, voiceVolume: .75,
-  countIn: true, accent: true, clickVolume: .6, clickSound: 'classic', metronomeEnabled: true,
+  countIn: true, accent: true, clickVolume: .9, clickSound: 'classic', metronomeEnabled: true,
   musicVolume: .8, restsEnabled: true, restSeconds: 20, manualReady: false, playbackSpeed: 1,
   preservesPitch: true, splitStereo: false, repeat: false, previewSeconds: 10,
   musicSinkId: '', clickSinkId: ''

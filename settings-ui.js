@@ -38,7 +38,8 @@ export function mountSettings(container, {engine, getSettings, saveSettings, sto
   container.innerHTML = [
     group('Voz y anuncios', [
       toggle('announcements', 'Anunciar el título antes de cada canción'),
-      select('voiceLang', 'Idioma'), select('voiceURI', 'Voz para los anuncios'),
+      select('voiceLang', 'Idioma de respaldo'), select('voiceURI', 'Voz para los anuncios'),
+      '<p class="fs-help">El título determina el idioma del anuncio si se reconoce como español o inglés. Puedes corregirlo en la canción.</p>',
       range('announcementGap','Pausa entre el título y el primer clic',0,15,0.5),
       '<p class="fs-help" data-info="voices"></p>',
       range('voiceRate', 'Velocidad de voz', 0.5, 2, 0.05), range('voiceVolume', 'Volumen de voz', 0, 1, 0.01),
@@ -137,7 +138,7 @@ export function mountSettings(container, {engine, getSettings, saveSettings, sto
   function syncVoices() {
     const {voiceURI, voiceLang} = settings();
     const all = engine.getVoices();
-    const langs = [...new Set(['es-ES',voiceLang,...all.map(v => v.lang)].filter(Boolean))].sort();
+    const langs = [...new Set(['es-ES','en-US',voiceLang,...all.map(v => v.lang)].filter(Boolean))].sort();
     const language = field('voiceLang');
     language.replaceChildren(...langs.map(code => option(code,code)));
     language.value = voiceLang;
@@ -145,7 +146,7 @@ export function mountSettings(container, {engine, getSettings, saveSettings, sto
     const voice = field('voiceURI');
     const chosen = all.find(v => v.voiceURI === voiceURI);
     if (chosen && !local.includes(chosen)) local.push(chosen);
-    voice.replaceChildren(option('', /^es\b/i.test(voiceLang) ? 'Automática · DaveFX neuronal' : 'Automática del sistema'), ...local.map(v => option(v.voiceURI, v.name + (v.localService ? '' : ' · en línea'))));
+    voice.replaceChildren(option('', 'Automática según el idioma'), ...local.map(v => option(v.voiceURI, v.name + (v.localService ? '' : ' · en línea'))));
     voice.value = chosen ? voiceURI : '';
     info('voices', chosen && !chosen.localService ? 'La voz seleccionada puede necesitar conexión.' :
       all.length ? '' : 'El dispositivo aún no ha listado voces. Si la voz falla, verás el título en pantalla.');
