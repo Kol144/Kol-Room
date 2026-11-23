@@ -21,7 +21,7 @@ button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-vis
 .smallbtn{border:1px solid #343434;background:#222;border-radius:6px;padding:6px 9px;font-size:11px;color:#ccc}
 .smallbtn:hover{border-color:var(--lime)}
 html{scroll-padding-top:calc(66px + env(safe-area-inset-top))}
-.main-nav{position:sticky;top:env(safe-area-inset-top);z-index:2;background:var(--user-bg);display:flex;gap:7px;border-bottom:1px solid var(--line);padding:18px 0 14px}
+.main-nav{position:sticky;top:env(safe-area-inset-top);z-index:30;background:var(--user-bg);display:flex;gap:7px;border-bottom:1px solid var(--line);padding:18px 0 14px}
 .nav-tab{border:1px solid transparent;border-radius:8px;background:transparent;color:var(--muted);font-weight:700;padding:10px 15px}
 .nav-tab:hover{color:var(--text);background:#1c1c1c}
 .nav-tab.active{color:var(--text);background:#222817;border-color:#394123;box-shadow:inset 0 -2px var(--lime)}

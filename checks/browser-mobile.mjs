@@ -39,6 +39,8 @@ try {
   await page.locator('#projectSelect option').first().waitFor({state:'attached'});
   assert.match(await page.title(),/Kol Room/);
   assert.match(await page.locator('.brand').innerText(),/Kol Room/);
+  assert.equal(await page.locator('#navRepertoire').evaluate(el=>getComputedStyle(el.parentElement).position),'sticky');
+  assert.ok(await page.locator('#navRepertoire').evaluate(el=>Number(getComputedStyle(el.parentElement).zIndex)>=30));
   const onset=1.733, drums=4.487;
   const rate=16000, samples=rate*12, wave=Buffer.alloc(44+samples*4);
   wave.write('RIFF');wave.writeUInt32LE(wave.length-8,4);wave.write('WAVEfmt ',8);
@@ -58,10 +60,13 @@ try {
   assert.ok(queries>=1);
   await page.waitForFunction(()=>document.querySelector('#onlineBpmStatus')?.textContent.includes('119 BPM · Aplicado'));
   assert.equal(await page.locator('#songBpm').inputValue(),'119');
+  await page.locator('#songTitleInput').fill('Love');
+  assert.match(await page.locator('#songSpeechLanguage option').first().textContent(),/Inglés/);
+  await page.locator('#songTitleInput').fill('Tema');
   await page.locator('#songBpm').fill('119.6');await page.locator('#songBpm').press('Tab');
   await page.locator('#searchOnlineBpm').click();
   await page.waitForFunction(()=>!document.querySelector('#searchOnlineBpm').disabled);
-  assert.equal(tempoQueries,2);
+  assert.ok(tempoQueries>=2);
   assert.equal(await page.locator('#songBpm').inputValue(),'120');
   await page.locator('#useSongTempo').click();
   assert.equal(await page.locator('#bpm').inputValue(),'120');

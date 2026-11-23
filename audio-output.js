@@ -4,7 +4,7 @@ import {firstSound} from './sound-onset.js';
 export const defaults = Object.freeze({
   announcementGap: 3,
   announcements: true, voiceURI: '', voiceLang: 'es-ES', voiceRate: 1, voiceVolume: .75,
-  countIn: true, accent: true, clickVolume: .9, clickSound: 'classic', metronomeEnabled: true,
+  countIn: true, accent: true, clickVolume: .95, clickSound: 'classic', metronomeEnabled: true,
   musicVolume: .8, restsEnabled: true, restSeconds: 20, manualReady: false, playbackSpeed: 1,
   preservesPitch: true, splitStereo: false, repeat: false, previewSeconds: 10,
   musicSinkId: '', clickSinkId: ''
@@ -281,7 +281,7 @@ export class AudioOutput {
     oscillator.frequency.value = wood ? (accent ? 1500 : 1000) : (accent ? 1200 : 800);
     const t = Math.max(at, ctx.currentTime);
     gain.gain.setValueAtTime(.0001, t);
-    gain.gain.exponentialRampToValueAtTime(.22, t + .003);
+    gain.gain.exponentialRampToValueAtTime(.42, t + .003);
     gain.gain.exponentialRampToValueAtTime(.0001, t + .055);
     oscillator.connect(gain).connect(this.clickBus.gain);
     const node = {oscillator, gain};
